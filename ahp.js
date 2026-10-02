@@ -90,6 +90,7 @@ const state = {
   questions: [],
   qIndex: 0,
   queueDims: null, // dims {nCrit, nAlt} usadas para construir questions (carimbo anti-obsoleto)
+  correction: null, // {queue:[qIdx], pos} — fila só com os pontos problemáticos
   sliderIdx: 0, // posição atual do slider (-4..+4)
   pendingNudge: null, // {groupName, cycleText} — contradição recém-criada
   answers: [], // por pergunta: {v} | null
@@ -331,6 +332,20 @@ function startQuestions() {
   state.phase = "ask";
 }
 
+// Modo correção: fila só com as perguntas problemáticas; ao final,
+// volta sozinho ao resultado recalculado.
+function startCorrection(indices) {
+  const queue = [...new Set(indices)].filter(i => i >= 0);
+  if (!queue.length) return;
+  state.correction = { queue, pos: 0 };
+  state.qIndex = queue[0];
+  state.pendingNudge = null;
+  state.phase = "ask";
+  state.sliderTouched = false;
+  state.step = 4;
+  render();
+}
+
 function renderCompare(sc) {
   if (state.phase === "overview") return renderOverview(sc);
   if (state.pendingNudge) return renderNudge(sc);
@@ -339,9 +354,15 @@ function renderCompare(sc) {
   const total = state.questions.length;
   const prev = state.answers[state.qIndex];
   if (prev && !state.sliderTouched) state.sliderIdx = valueToSliderIndex(prev.v);
-  const groupTag = q.type === "criteria"
-    ? `⚖️ Critérios · pergunta ${state.qIndex + 1} de ${total}`
-    : `🔎 “${escapeHtml(q.crit)}” · pergunta ${state.qIndex + 1} de ${total}`;
+  const corr = state.correction;
+  const groupTag = corr
+    ? `🔧 Ajuste ${corr.pos + 1} de ${corr.queue.length}`
+    : (q.type === "criteria"
+      ? `⚖️ Critérios · pergunta ${state.qIndex + 1} de ${total}`
+      : `🔎 “${escapeHtml(q.crit)}” · pergunta ${state.qIndex + 1} de ${total}`);
+  const barPct = corr
+    ? (corr.pos / corr.queue.length * 100).toFixed(0)
+    : (state.qIndex / total * 100).toFixed(0);
   const question = q.type === "criteria"
     ? `Para <strong>${escapeHtml(state.goal.toLowerCase())}</strong>, arraste para o lado que pesa mais:`
     : `Pensando <strong>só em ${escapeHtml(q.crit.toLowerCase())}</strong>, arraste para a melhor opção:`;
@@ -355,7 +376,7 @@ function renderCompare(sc) {
     : `<span class="badge ok">✔ coerente</span>`;
 
   sc.innerHTML = `<span class="qtag">${groupTag}</span> ${pill}
-    <div class="qbar"><div style="width:${(state.qIndex / total * 100).toFixed(0)}%"></div></div>
+    <div class="qbar"><div style="width:${barPct}%"></div></div>
     <p class="qtext">${question}</p>
     <div class="sat-ends"><span>◀ ${escapeHtml(q.a)}</span><span>${escapeHtml(q.b)} ▶</span></div>
     <input type="range" class="sat" id="sat" min="-4" max="4" step="1" value="${state.sliderIdx}" />
@@ -375,10 +396,19 @@ function renderCompare(sc) {
   $("qnext").onclick = () => saveAnswer({ v: sliderIndexToValue(state.sliderIdx) });
   $("qback").onclick = () => {
     state.sliderTouched = false;
+    if (state.correction) {
+      if (state.correction.pos === 0) { // sai do modo correção, resultado atual continua válido
+        state.correction = null; state.step = 5; render(); return;
+      }
+      state.correction.pos -= 1;
+      state.qIndex = state.correction.queue[state.correction.pos];
+      render();
+      return;
+    }
     if (state.qIndex === 0) { state.step = 3; render(); return; }
     state.qIndex -= 1; render();
   };
-  $("qall").onclick = () => { state.phase = "overview"; render(); };
+  $("qall").onclick = () => { state.correction = null; state.phase = "overview"; render(); };
 }
 
 function saveAnswer(ans) {
@@ -406,6 +436,19 @@ function saveAnswer(ans) {
 
 function advance() {
   state.pendingNudge = null;
+  if (state.correction) {
+    state.correction.pos += 1;
+    if (state.correction.pos >= state.correction.queue.length) {
+      state.correction = null;
+      finishAndShowResult();
+      return;
+    }
+    state.qIndex = state.correction.queue[state.correction.pos];
+    state.sliderIdx = 0;
+    state.sliderTouched = false;
+    render();
+    return;
+  }
   if (state.qIndex + 1 >= state.questions.length) {
     finishAndShowResult();
     return;
@@ -454,6 +497,7 @@ function renderOverview(sc) {
 
 // Passo 5
 function finishAndShowResult() {
+  state.correction = null;
   const rc = calcAHP(state.critMatrix);
   const perCrit = {};
   state.criteria.forEach(c => { perCrit[c] = calcAHP(state.altMatrices[c]); });
@@ -494,23 +538,26 @@ function renderResult(sc) {
   // Detalhe concreto por grupo problemático: ciclo nominal, ou a resposta
   // que mais destoa (caso cardinal). Nunca genérico.
   function groupDetail(g) {
+    const where = g.type === "criteria" ? "" : ` em ${g.short}`;
     const cyc = findCycle(g.matrix);
     if (cyc) {
       const [x, y, z] = cyc;
+      const pair = `${g.labels[x]} × ${g.labels[y]}`;
       return {
         text: `contradição sobre <strong>${escapeHtml(g.name)}</strong>: “${escapeHtml(g.labels[x])} ganha de ${escapeHtml(g.labels[y])}, ${escapeHtml(g.labels[y])} ganha de ${escapeHtml(g.labels[z])}, mas ${escapeHtml(g.labels[z])} ganha de ${escapeHtml(g.labels[x])}”`,
         jump: questionIndexOf(g.type, g.cj, x, y),
-        btn: `Rever ${escapeHtml(g.short)}`,
+        btn: `Rever ${escapeHtml(pair)}${escapeHtml(where)}`,
       };
     }
     const off = findWorstOffender(g.matrix, groupAnsweredPairs(g));
     if (off) {
       const qi = Math.min(off.i, off.j), qj = Math.max(off.i, off.j);
       const words = describeAnswer({ a: g.labels[qi], b: g.labels[qj] }, { v: g.matrix[qi][qj] });
+      const pair = `${g.labels[qi]} × ${g.labels[qj]}`;
       return {
         text: `pesos exagerados sobre <strong>${escapeHtml(g.name)}</strong>: você disse que “${escapeHtml(words)}”, mas o resto das respostas não confirma uma diferença tão grande (isso só dá para medir com tudo respondido — por isso o aviso aparece só agora)`,
         jump: questionIndexOf(g.type, g.cj, qi, qj),
-        btn: `Suavizar essa resposta`,
+        btn: `Suavizar ${escapeHtml(pair)}${escapeHtml(where)}`,
       };
     }
     return {
@@ -521,15 +568,16 @@ function renderResult(sc) {
   }
 
   const bad = groups.filter(g => g.r.CR >= 0.10);
+  const details = bad.map(groupDetail);
 
   let coherence;
   if (bad.length === 0) {
     coherence = `<div class="coherence ok">✔ <strong>Suas respostas foram coerentes.</strong> Nada se contradiz — pode confiar no resultado.</div>`;
   } else {
-    const details = bad.map(groupDetail);
     coherence = `<div class="coherence bad">⚠ <strong>Há um problema nas suas respostas:</strong><ul>` +
       details.map(d => `<li>${d.text}.</li>`).join("") + `</ul>
-      <div class="row">${details.map(d => `<button data-rev-idx="${d.jump}">${d.btn}</button>`).join("")}</div></div>`;
+      <div class="row">${details.map(d => `<button data-rev-idx="${d.jump}">${d.btn}</button>`).join("")}</div>
+      <div class="row"><button class="primary" id="fixAll">🔧 Corrigir os ${details.length} pontos de uma vez</button></div></div>`;
   }
 
   sc.innerHTML = `
@@ -551,11 +599,10 @@ function renderResult(sc) {
       <div id="techBody"></div></details>`;
 
   sc.querySelectorAll("[data-rev-idx]").forEach(b => {
-    b.onclick = () => {
-      state.qIndex = Math.max(0, +b.dataset.revIdx);
-      state.phase = "ask"; state.sliderTouched = false; state.step = 4; render();
-    };
+    b.onclick = () => startCorrection([+b.dataset.revIdx]);
   });
+  const fixAll = $("fixAll");
+  if (fixAll) fixAll.onclick = () => startCorrection(details.map(d => d.jump));
   $("adjust").onclick = () => { state.step = 4; state.phase = "overview"; render(); };
   $("restart").onclick = () => {
     state.step = 1; state.goal = "";
