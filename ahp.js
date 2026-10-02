@@ -274,12 +274,48 @@ function renderList(sc, kind) {
     syncItems();
     const filled = items.map(s => s.trim()).filter(Boolean);
     if (filled.length < 2) return alert("Preencha pelo menos 2 itens.");
+    const seen = new Set();
+    const dup = filled.find(s => { const k = s.toLowerCase(); if (seen.has(k)) return true; seen.add(k); return false; });
+    if (dup) return alert(`"${dup}" aparece mais de uma vez — dê nomes diferentes para cada item.`);
+    const snap = snapshotFlow();
     if (isCrit) state.criteria = filled; else state.alternatives = filled;
     ensureMatrices();
     state.step += 1;
-    if (state.step === 4) startQuestions();
+    if (state.step === 4) { startQuestions(); restoreFlow(snap); }
     render();
   };
+}
+
+// Foto do progresso (para preservar respostas quando o usuário volta e edita
+// nomes). Chaves posicionais — renomear não perde nada; mudar quantidades recomeça.
+function snapshotFlow() {
+  const ans = {};
+  state.questions.forEach((q, idx) => {
+    if (state.answers[idx]) ans[q.type + ":" + (q.type === "criteria" ? -1 : q.cj) + ":" + q.i + ":" + q.j] = state.answers[idx];
+  });
+  return {
+    nCrit: state.criteria.length,
+    nAlt: state.alternatives.length,
+    critMatrix: state.critMatrix.map(r => r.slice()),
+    alt: state.criteria.map(c => (state.altMatrices[c] || []).map(r => r.slice())),
+    answers: ans,
+  };
+}
+
+function restoreFlow(snap) {
+  if (!snap || snap.nCrit !== state.criteria.length || snap.nAlt !== state.alternatives.length) return;
+  if (snap.critMatrix.length === state.criteria.length) state.critMatrix = snap.critMatrix;
+  state.criteria.forEach((c, i) => {
+    if (snap.alt[i] && snap.alt[i].length === state.alternatives.length) state.altMatrices[c] = snap.alt[i];
+  });
+  state.questions.forEach((q, idx) => {
+    const key = q.type + ":" + (q.type === "criteria" ? -1 : q.cj) + ":" + q.i + ":" + q.j;
+    if (snap.answers[key]) { state.answers[idx] = snap.answers[key]; applyAnswer(q, snap.answers[key]); }
+  });
+  const firstOpen = state.answers.findIndex(a => !a);
+  state.qIndex = firstOpen === -1 ? 0 : firstOpen;
+  state.sliderIdx = 0;
+  state.sliderTouched = false;
 }
 
 // Passo 4
@@ -296,6 +332,7 @@ function renderCompare(sc) {
   if (state.phase === "overview") return renderOverview(sc);
   if (state.pendingNudge) return renderNudge(sc);
   const q = state.questions[state.qIndex];
+  if (!q) { state.phase = "overview"; return renderOverview(sc); } // sem perguntas (ex.: exemplo) → nunca quebra
   const total = state.questions.length;
   const prev = state.answers[state.qIndex];
   if (prev && !state.sliderTouched) state.sliderIdx = valueToSliderIndex(prev.v);
@@ -372,6 +409,7 @@ function advance() {
   }
   state.qIndex += 1;
   state.sliderIdx = 0;
+  state.sliderTouched = false;
   render();
 }
 
@@ -541,6 +579,13 @@ function loadExample() {
   state.goal = "Escolher o melhor carro";
   state.criteria = ["Custo", "Conforto", "Economia", "Segurança"];
   state.alternatives = ["Carro A", "Carro B", "Carro C"];
+  state.questions = [];
+  state.answers = [];
+  state.qIndex = 0;
+  state.sliderIdx = 0;
+  state.sliderTouched = false;
+  state.pendingNudge = null;
+  state.phase = "ask";
   ensureMatrices();
   state.critMatrix = [[1, 1/3, 1/2, 1/4], [3, 1, 2, 1/2], [2, 1/2, 1, 1/3], [4, 2, 3, 1]];
   state.altMatrices = {
