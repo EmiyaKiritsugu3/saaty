@@ -557,6 +557,13 @@ function renderResult(sc) {
   $("restart").onclick = () => {
     state.step = 1; state.goal = "";
     state.criteria = ["", ""]; state.alternatives = ["", ""];
+    state.questions = [];
+    state.answers = [];
+    state.qIndex = 0;
+    state.sliderIdx = 0;
+    state.sliderTouched = false;
+    state.pendingNudge = null;
+    state.phase = "ask";
     state.result = null; render();
   };
 
