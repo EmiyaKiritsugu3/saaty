@@ -230,10 +230,15 @@ function renderList(sc, kind) {
     const filled = items.map(s => s.trim()).filter(Boolean);
     const nC = isCrit ? filled.length : state.criteria.filter(s => s.trim()).length;
     const nA = isCrit ? state.alternatives.filter(s => s.trim()).length : filled.length;
-    const n = (isCrit || state.step === 3) ? questionCount(Math.max(nC, 2), Math.max(nA, 2)) : 0;
-    $("countNote").innerHTML = filled.length < 2
-      ? `⚠ Preencha pelo menos <strong>2 itens</strong>.`
-      : `✔ Com ${nC} critério(s) e ${nA} opção(ões), faremos <strong>${n} perguntinhas</strong> rápidas. Quanto menos itens, mais rápido.`;
+    if (filled.length < 2) {
+      $("countNote").innerHTML = `⚠ Preencha pelo menos <strong>2 itens</strong>.`;
+    } else if (isCrit) {
+      const pairs = (nC * (nC - 1)) / 2;
+      $("countNote").innerHTML = `✔ Serão <strong>${pairs} perguntinha(s)</strong> sobre critérios, mais as comparações das opções na próxima etapa. Quanto menos itens, mais rápido.`;
+    } else {
+      const n = questionCount(Math.max(nC, 2), Math.max(nA, 2));
+      $("countNote").innerHTML = `✔ No total, faremos <strong>${n} perguntinhas</strong> rápidas. Quanto menos itens, mais rápido.`;
+    }
   };
   draw();
   $("add").onclick = () => {
@@ -319,16 +324,17 @@ function saveAnswer(ans) {
   state.answers[state.qIndex] = ans;
   applyAnswer(q, ans);
   state.sliderTouched = false;
-  // Coerência na origem: esta resposta quebrou o grupo?
+  // Coerência na origem: só avisa quando há contradição concreta (trio
+  // intransitivo que conseguimos apontar). Um CR alto sem ciclo identificável
+  // (ex.: um único julgamento forte com o resto empatado) é normal e em geral
+  // se resolve com as próximas respostas — avisar aí seria ruído.
   const g = groupOf(q);
   const r = calcAHP(g.matrix);
-  if (r.CR >= 0.10) {
-    const cyc = findCycle(g.matrix);
+  const cyc = r.CR >= 0.10 ? findCycle(g.matrix) : null;
+  if (cyc) {
     state.pendingNudge = {
       groupName: g.name,
-      cycleText: cyc
-        ? `${g.labels[cyc[0]]} ganha de ${g.labels[cyc[1]]}, ${g.labels[cyc[1]]} ganha de ${g.labels[cyc[2]]}, mas ${g.labels[cyc[2]]} ganha de ${g.labels[cyc[0]]}`
-        : "as respostas deste grupo se contradizem entre si",
+      cycleText: `${g.labels[cyc[0]]} ganha de ${g.labels[cyc[1]]}, ${g.labels[cyc[1]]} ganha de ${g.labels[cyc[2]]}, mas ${g.labels[cyc[2]]} ganha de ${g.labels[cyc[0]]}`,
     };
     render();
     return;

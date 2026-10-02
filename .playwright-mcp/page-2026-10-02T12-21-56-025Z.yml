@@ -1,0 +1,46 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - heading "Decida com clareza — assistente de decisão (método Saaty/AHP)" [level=1] [ref=e4]
+      - paragraph [ref=e5]: Responda perguntas simples. A matemática fica por nossa conta.
+  - main [ref=e6]:
+    - list "Progresso" [ref=e7]:
+      - listitem [ref=e8]:
+        - generic [ref=e9]: "1"
+        - generic [ref=e10]: Decisão
+      - listitem [ref=e11]:
+        - generic [ref=e12]: "2"
+        - generic [ref=e13]: Critérios
+      - listitem [ref=e14]:
+        - generic [ref=e15]: "3"
+        - generic [ref=e16]: Opções
+      - listitem [ref=e17]:
+        - generic [ref=e18]: "4"
+        - generic [ref=e19]: Comparar
+      - listitem [ref=e20]:
+        - generic [ref=e21]: "5"
+        - generic [ref=e22]: Resultado
+    - generic [ref=e23]:
+      - generic [ref=e122]: ⚖️ Critérios · pergunta 1 de 6
+      - generic [ref=e123]: ✔ coerente
+      - paragraph [ref=e125]:
+        - text: Para
+        - strong [ref=e126]: escolher notebook
+        - text: ", arraste para o lado que pesa mais:"
+      - generic [ref=e127]:
+        - generic [ref=e128]: ◀ Preço
+        - generic [ref=e129]: Desempenho ▶
+      - slider [ref=e130] [cursor=pointer]: "0"
+      - generic [ref=e131]:
+        - generic [ref=e132]: Preço domina
+        - generic [ref=e133]: equivalem-se
+        - generic [ref=e134]: Desempenho domina
+      - paragraph [ref=e135]:
+        - text: Preço e Desempenho têm o
+        - strong [ref=e136]: mesmo peso
+        - text: para você.
+      - generic [ref=e137]:
+        - button "← Voltar" [ref=e138] [cursor=pointer]
+        - button "Próxima →" [ref=e139] [cursor=pointer]
+      - button "ver todas as respostas" [ref=e141] [cursor=pointer]
+    - paragraph [ref=e32]: "Baseado no método AHP de Thomas Saaty. Sem conta, sem servidor: tudo roda no seu navegador."

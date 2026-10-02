@@ -1,0 +1,39 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - heading "Decida com clareza — assistente de decisão (método Saaty/AHP)" [level=1] [ref=e4]
+      - paragraph [ref=e5]: Responda perguntas simples. A matemática fica por nossa conta.
+  - main [ref=e6]:
+    - list "Progresso" [ref=e7]:
+      - listitem [ref=e8]:
+        - generic [ref=e9]: "1"
+        - generic [ref=e10]: Decisão
+      - listitem [ref=e11]:
+        - generic [ref=e12]: "2"
+        - generic [ref=e13]: Critérios
+      - listitem [ref=e14]:
+        - generic [ref=e15]: "3"
+        - generic [ref=e16]: Opções
+      - listitem [ref=e17]:
+        - generic [ref=e18]: "4"
+        - generic [ref=e19]: Comparar
+      - listitem [ref=e20]:
+        - generic [ref=e21]: "5"
+        - generic [ref=e22]: Resultado
+    - generic [ref=e23]:
+      - heading "Quais são as opções?" [level=2] [ref=e107]
+      - paragraph [ref=e108]: "Liste de 2 a 5 alternativas. Ex.: Carro A, Carro B, Carro C."
+      - generic [ref=e109]:
+        - 'textbox "Ex.: Opção 1" [ref=e111]'
+        - 'textbox "Ex.: Opção 2" [ref=e113]'
+      - generic [ref=e114]:
+        - button "+ Adicionar" [ref=e115] [cursor=pointer]
+        - button "− Remover último" [ref=e116] [cursor=pointer]
+      - generic [ref=e117]:
+        - text: ⚠ Preencha pelo menos
+        - strong [ref=e118]: 2 itens
+        - text: .
+      - generic [ref=e119]:
+        - button "← Voltar" [ref=e120] [cursor=pointer]
+        - button "Continuar →" [ref=e121] [cursor=pointer]
+    - paragraph [ref=e32]: "Baseado no método AHP de Thomas Saaty. Sem conta, sem servidor: tudo roda no seu navegador."

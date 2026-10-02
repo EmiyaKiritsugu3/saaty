@@ -1,0 +1,32 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - heading "Decida com clareza — assistente de decisão (método Saaty/AHP)" [level=1] [ref=f1e4]
+      - paragraph [ref=f1e5]: Responda perguntas simples. A matemática fica por nossa conta.
+  - main [ref=f1e6]:
+    - list "Progresso" [ref=f1e7]:
+      - listitem [ref=f1e8]:
+        - generic [ref=f1e9]: "1"
+        - generic [ref=f1e10]: Decisão
+      - listitem [ref=f1e11]:
+        - generic [ref=f1e12]: "2"
+        - generic [ref=f1e13]: Critérios
+      - listitem [ref=f1e14]:
+        - generic [ref=f1e15]: "3"
+        - generic [ref=f1e16]: Opções
+      - listitem [ref=f1e17]:
+        - generic [ref=f1e18]: "4"
+        - generic [ref=f1e19]: Comparar
+      - listitem [ref=f1e20]:
+        - generic [ref=f1e21]: "5"
+        - generic [ref=f1e22]: Resultado
+    - generic [ref=f1e23]:
+      - heading "O que você quer decidir?" [level=2] [ref=f1e24]
+      - paragraph [ref=f1e25]: "Escreva com suas palavras. Exemplos: \"qual carro comprar\", \"onde morar\", \"qual fornecedor contratar\"."
+      - generic [ref=f1e26]: Minha decisão é…
+      - textbox "Minha decisão é…" [ref=f1e27]:
+        - /placeholder: "Ex.: Escolher o melhor carro"
+      - generic [ref=f1e28]:
+        - button "👀 ver exemplo pronto" [ref=f1e29] [cursor=pointer]
+        - button "Continuar →" [ref=f1e30] [cursor=pointer]
+    - paragraph [ref=f1e32]: "Baseado no método AHP de Thomas Saaty. Sem conta, sem servidor: tudo roda no seu navegador."
