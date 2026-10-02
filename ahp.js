@@ -89,6 +89,7 @@ const state = {
   altMatrices: {},
   questions: [],
   qIndex: 0,
+  queueDims: null, // dims {nCrit, nAlt} usadas para construir questions (carimbo anti-obsoleto)
   sliderIdx: 0, // posição atual do slider (-4..+4)
   pendingNudge: null, // {groupName, cycleText} — contradição recém-criada
   answers: [], // por pergunta: {v} | null
@@ -293,9 +294,10 @@ function snapshotFlow() {
   state.questions.forEach((q, idx) => {
     if (state.answers[idx]) ans[q.type + ":" + (q.type === "criteria" ? -1 : q.cj) + ":" + q.i + ":" + q.j] = state.answers[idx];
   });
+  const d = state.queueDims || { nCrit: -1, nAlt: -1 }; // sem carimbo = snapshot inválido
   return {
-    nCrit: state.criteria.length,
-    nAlt: state.alternatives.length,
+    nCrit: d.nCrit,
+    nAlt: d.nAlt,
     critMatrix: state.critMatrix.map(r => r.slice()),
     alt: state.criteria.map(c => (state.altMatrices[c] || []).map(r => r.slice())),
     answers: ans,
@@ -321,6 +323,7 @@ function restoreFlow(snap) {
 // Passo 4
 function startQuestions() {
   state.questions = buildQuestionQueue(state.criteria, state.alternatives);
+  state.queueDims = { nCrit: state.criteria.length, nAlt: state.alternatives.length };
   state.answers = state.questions.map(() => null);
   state.qIndex = 0;
   state.sliderIdx = 0;
@@ -559,6 +562,7 @@ function renderResult(sc) {
     state.criteria = ["", ""]; state.alternatives = ["", ""];
     state.questions = [];
     state.answers = [];
+    state.queueDims = null;
     state.qIndex = 0;
     state.sliderIdx = 0;
     state.sliderTouched = false;
@@ -588,6 +592,7 @@ function loadExample() {
   state.alternatives = ["Carro A", "Carro B", "Carro C"];
   state.questions = [];
   state.answers = [];
+  state.queueDims = null;
   state.qIndex = 0;
   state.sliderIdx = 0;
   state.sliderTouched = false;
