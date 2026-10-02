@@ -3,101 +3,30 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Método Saaty (AHP) — Apoio à Decisão</title>
+<title>Decida com clareza — Método Saaty (AHP)</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 <header>
   <div class="container">
-    <h1>Método Saaty (AHP) <span>— Apoio à Decisão Multicritério</span></h1>
-    <p class="subtitle">Exemplo interativo: <strong id="subtitleGoal">Escolher o melhor carro</strong></p>
+    <h1>Decida com clareza <span>— assistente de decisão (método Saaty/AHP)</span></h1>
+    <p class="subtitle">Responda perguntas simples. A matemática fica por nossa conta.</p>
   </div>
 </header>
 
 <main class="container">
+  <ol id="stepper" class="stepper" aria-label="Progresso">
+    <li data-step="1"><span class="dot">1</span><span class="lbl">Decisão</span></li>
+    <li data-step="2"><span class="dot">2</span><span class="lbl">Critérios</span></li>
+    <li data-step="3"><span class="dot">3</span><span class="lbl">Opções</span></li>
+    <li data-step="4"><span class="dot">4</span><span class="lbl">Comparar</span></li>
+    <li data-step="5"><span class="dot">5</span><span class="lbl">Resultado</span></li>
+  </ol>
 
-  <section class="card theory">
-    <h2>Como funciona? (resumo em 6 passos)</h2>
-    <ol>
-      <li><strong>Hierarquia:</strong> Objetivo → Critérios → Alternativas.</li>
-      <li><strong>Comparação pareada</strong> com a escala Saaty (1–9 e recíprocos).</li>
-      <li><strong>Matriz recíproca:</strong> <code>a<sub>ji</sub> = 1/a<sub>ij</sub></code>, diagonal = 1.</li>
-      <li><strong>Prioridades:</strong> normaliza cada coluna (divide pela soma) e tira a média da linha.</li>
-      <li><strong>Consistência:</strong> <code>λ<sub>máx</sub></code> → <code>CI = (λ<sub>máx</sub>−n)/(n−1)</code> → <code>CR = CI/RI</code>. OK se <code>CR &lt; 0,10</code>.</li>
-      <li><strong>Síntese:</strong> nota global = Σ (peso do critério × nota local).</li>
-    </ol>
-    <details>
-      <summary>Escala fundamental de Saaty</summary>
-      <table class="mini">
-        <tr><th>Valor</th><th>Significado</th></tr>
-        <tr><td>1</td><td>Igual importância</td></tr>
-        <tr><td>3</td><td>Importância moderada</td></tr>
-        <tr><td>5</td><td>Importância forte</td></tr>
-        <tr><td>7</td><td>Importância muito forte</td></tr>
-        <tr><td>9</td><td>Importância extrema</td></tr>
-        <tr><td>2,4,6,8</td><td>Intermediários</td></tr>
-        <tr><td>1/3, 1/5…</td><td>Recíprocos (comparação inversa)</td></tr>
-      </table>
-    </details>
-  </section>
-
-  <!-- ETAPA 1 -->
-  <section class="card">
-    <h2>Etapa 1 — Hierarquia: objetivo, critérios e alternativas</h2>
-    <label>Objetivo
-      <input id="goalInput" type="text" value="Escolher o melhor carro" />
-    </label>
-    <div class="grid2">
-      <div>
-        <h3>Critérios</h3>
-        <div id="criteriaList"></div>
-        <div class="row">
-          <button id="addCriterion">+ Critério</button>
-          <button id="removeCriterion" class="ghost">− Remover</button>
-        </div>
-      </div>
-      <div>
-        <h3>Alternativas</h3>
-        <div id="altList"></div>
-        <div class="row">
-          <button id="addAlt">+ Alternativa</button>
-          <button id="removeAlt" class="ghost">− Remover</button>
-        </div>
-      </div>
-    </div>
-    <div class="row">
-      <button id="rebuildBtn" class="primary">Gerar / atualizar matrizes</button>
-      <button id="loadExample" class="ghost">Carregar exemplo (carro)</button>
-    </div>
-    <div id="hierarchyPreview" class="hierarchy"></div>
-  </section>
-
-  <!-- ETAPA 2 -->
-  <section class="card">
-    <h2>Etapa 2 — Comparar critérios (2 a 2)</h2>
-    <p class="hint">Linha × Coluna: “quanto a linha é mais importante que a coluna?”. Escolha 1–9; o recíproco preenche sozinho. Diagonal travada em 1.</p>
-    <div id="criteriaMatrixWrap" class="matrix-wrap"></div>
-    <div id="criteriaResult" class="result"></div>
-  </section>
-
-  <!-- ETAPA 3 -->
-  <section class="card">
-    <h2>Etapa 3 — Comparar alternativas em cada critério</h2>
-    <p class="hint">Para cada critério, compare as alternativas 2 a 2 segundo aquele critério.</p>
-    <div id="altMatrices"></div>
-  </section>
-
-  <!-- ETAPA 4 -->
-  <section class="card">
-    <h2>Etapa 4 — Resultado e ranking</h2>
-    <button id="calcBtn" class="primary big">Calcular AHP completo</button>
-    <div id="finalResult"></div>
-    <div id="chart"></div>
-    <div id="steps"></div>
-  </section>
+  <section id="screen" class="card" aria-live="polite"></section>
 
   <footer>
-    <p>AHP didático — vetor de prioridades pelo método da normalização. RI: n=3→0,58 · n=4→0,90 · n=5→1,12 · n=6→1,24 · n=7→1,32 · n=8→1,41 · n=9→1,45 · n=10→1,49.</p>
+    <p>Baseado no método AHP de Thomas Saaty. Sem conta, sem servidor: tudo roda no seu navegador.</p>
   </footer>
 </main>
 <script src="ahp.js"></script>

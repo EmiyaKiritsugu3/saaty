@@ -1,35 +1,8 @@
-// AHP / Método Saaty — lógica didática (normalização das colunas)
-const SAATY_OPTIONS = [
-  { v: 9, label: "9 — extrema" },
-  { v: 8, label: "8" },
-  { v: 7, label: "7 — muito forte" },
-  { v: 6, label: "6" },
-  { v: 5, label: "5 — forte" },
-  { v: 4, label: "4" },
-  { v: 3, label: "3 — moderada" },
-  { v: 2, label: "2" },
-  { v: 1, label: "1 — igual" },
-  { v: 1/2, label: "1/2" },
-  { v: 1/3, label: "1/3" },
-  { v: 1/4, label: "1/4" },
-  { v: 1/5, label: "1/5" },
-  { v: 1/6, label: "1/6" },
-  { v: 1/7, label: "1/7" },
-  { v: 1/8, label: "1/8" },
-  { v: 1/9, label: "1/9" },
-];
+// Assistente de decisão — método Saaty/AHP em linguagem simples.
+// Núcleo matemático (calcAHP) preservado; a UI guia por perguntas,
+// uma de cada vez, sem expor matrizes ou jargão.
 
-const RI = { 1: 0, 2: 0, 3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49 };
-
-const state = {
-  goal: "Escolher o melhor carro",
-  criteria: ["Custo", "Conforto", "Economia", "Segurança"],
-  alternatives: ["Carro A", "Carro B", "Carro C"],
-  critMatrix: [],
-  altMatrices: {}, // criterio -> matriz
-};
-
-// ---------- Núcleo AHP ----------
+// ---------- Núcleo AHP (não mexer) ----------
 function calcAHP(matrix) {
   const n = matrix.length;
   if (n === 0) return null;
@@ -42,7 +15,6 @@ function calcAHP(matrix) {
   const norm = matrix.map(row => row.map((v, j) => v / colSums[j]));
   const weights = norm.map(row => row.reduce((a, b) => a + b, 0) / n);
 
-  // lambda_max: média de (A·w)/w
   const Aw = matrix.map(row => row.reduce((s, v, j) => s + v * weights[j], 0));
   const lambdas = Aw.map((v, i) => v / weights[i]);
   const lambdaMax = lambdas.reduce((a, b) => a + b, 0) / n;
@@ -53,295 +25,406 @@ function calcAHP(matrix) {
   return { weights, lambdaMax, CI, CR, n, colSums, norm, Aw, lambdas };
 }
 
-const fmt = (x, d = 4) => Number(x).toFixed(d).replace(".", ",");
+const RI = { 1: 0, 2: 0, 3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49 };
+
+// ---------- Lógica pura (testável, sem DOM) ----------
+const LEVELS = [
+  { v: 3, t: "Um pouco mais", d: "pesa um pouco mais na decisão" },
+  { v: 5, t: "Bem mais", d: "pesa bem mais na decisão" },
+  { v: 7, t: "Muito mais", d: "pesa muito mais na decisão" },
+  { v: 9, t: "Extremamente mais", d: "é disparado o mais importante" },
+];
+
+// side: 'A' | 'B' | 'equal' → valor de M[i][j] na escala Saaty
+function answerToValue(side, intensity) {
+  if (side === "equal") return 1;
+  return side === "A" ? intensity : 1 / intensity;
+}
+
+function questionCount(nCrit, nAlt) {
+  return (nCrit * (nCrit - 1)) / 2 + nCrit * ((nAlt * (nAlt - 1)) / 2);
+}
+
+// Fila de perguntas: pares de critérios, depois pares de opções por critério.
+function buildQuestionQueue(criteria, alternatives) {
+  const qs = [];
+  for (let i = 0; i < criteria.length; i++)
+    for (let j = i + 1; j < criteria.length; j++)
+      qs.push({ type: "criteria", i, j, a: criteria[i], b: criteria[j] });
+  criteria.forEach((c, cj) => {
+    for (let i = 0; i < alternatives.length; i++)
+      for (let j = i + 1; j < alternatives.length; j++)
+        qs.push({ type: "alt", crit: c, cj, i, j, a: alternatives[i], b: alternatives[j] });
+  });
+  return qs;
+}
+
+function emptyMatrix(n) {
+  return Array.from({ length: n }, () => Array(n).fill(1));
+}
+
 const fmtPct = (x) => (x * 100).toFixed(1).replace(".", ",") + "%";
 
-// ---------- UI: edição ----------
+// ---------- Estado ----------
+const state = {
+  step: 1,
+  goal: "",
+  criteria: ["Custo", "Conforto", "Economia"],
+  alternatives: ["Opção A", "Opção B", "Opção C"],
+  critMatrix: [],
+  altMatrices: {},
+  questions: [],
+  qIndex: 0,
+  phase: "side", // 'side' | 'intensity' | 'overview'
+  pickedSide: null,
+  answers: [], // por pergunta: {side, intensity} | null
+  result: null,
+};
+
+function ensureMatrices() {
+  const n = state.criteria.length, m = state.alternatives.length;
+  state.critMatrix = emptyMatrix(n);
+  state.altMatrices = {};
+  state.criteria.forEach(c => { state.altMatrices[c] = emptyMatrix(m); });
+}
+
+function applyAnswer(q, ans) {
+  const v = answerToValue(ans.side, ans.intensity);
+  const M = q.type === "criteria" ? state.critMatrix : state.altMatrices[q.crit];
+  M[q.i][q.j] = v;
+  M[q.j][q.i] = 1 / v;
+}
+
+function describeAnswer(q, ans) {
+  if (!ans) return "ainda não respondida";
+  if (ans.side === "equal") return `${q.a} e ${q.b} empatados`;
+  const winner = ans.side === "A" ? q.a : q.b;
+  const loser = ans.side === "A" ? q.b : q.a;
+  const lvl = LEVELS.find(l => l.v === ans.intensity);
+  return `${winner} ${lvl ? lvl.t.toLowerCase() + " importante" : ""} que ${loser}`;
+}
+
+// ---------- UI (navegador) ----------
 const $ = (id) => document.getElementById(id);
-
-function renderEditors() {
-  $("goalInput").value = state.goal;
-  $("criteriaList").innerHTML = "";
-  state.criteria.forEach((c, i) => {
-    const div = document.createElement("div");
-    div.className = "edit-row";
-    div.innerHTML = `<input type="text" data-kind="c" data-i="${i}" value="${escapeHtml(c)}" />`;
-    $("criteriaList").appendChild(div);
-  });
-  $("altList").innerHTML = "";
-  state.alternatives.forEach((a, i) => {
-    const div = document.createElement("div");
-    div.className = "edit-row";
-    div.innerHTML = `<input type="text" data-kind="a" data-i="${i}" value="${escapeHtml(a)}" />`;
-    $("altList").appendChild(div);
-  });
-  document.querySelectorAll("#criteriaList input, #altList input, #goalInput").forEach(inp => {
-    inp.addEventListener("input", syncFromEditors);
-  });
-  renderHierarchy();
-}
-
-function syncFromEditors() {
-  state.goal = $("goalInput").value || "Objetivo";
-  document.querySelectorAll('#criteriaList input').forEach(inp => {
-    state.criteria[+inp.dataset.i] = inp.value || `Critério ${+inp.dataset.i + 1}`;
-  });
-  document.querySelectorAll('#altList input').forEach(inp => {
-    state.alternatives[+inp.dataset.i] = inp.value || `Alt. ${+inp.dataset.i + 1}`;
-  });
-  $("subtitleGoal").textContent = state.goal;
-  renderHierarchy();
-  // renomeia chaves de altMatrices preservando ordem
-  const newAlt = {};
-  state.criteria.forEach(c => { newAlt[c] = state.altMatrices[c] || null; });
-  state.altMatrices = newAlt;
-}
-
-function renderHierarchy() {
-  $("hierarchyPreview").innerHTML =
-    `<strong>🎯 ${escapeHtml(state.goal)}</strong><br>` +
-    `↳ <strong>Critérios (${state.criteria.length}):</strong> ${state.criteria.map(escapeHtml).join(" · ")}<br>` +
-    `↳ <strong>Alternativas (${state.alternatives.length}):</strong> ${state.alternatives.map(escapeHtml).join(" · ")}`;
-}
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 }
 
-// ---------- UI: matrizes ----------
-function emptyMatrix(n) {
-  return Array.from({ length: n }, (_, i) =>
-    Array.from({ length: n }, (_, j) => (i === j ? 1 : i < j ? 1 : 1)));
-}
-
-function ensureMatrices() {
-  const n = state.criteria.length, m = state.alternatives.length;
-  if (state.critMatrix.length !== n || (n && state.critMatrix[0].length !== n))
-    state.critMatrix = emptyMatrix(n);
-  state.criteria.forEach(c => {
-    const M = state.altMatrices[c];
-    if (!M || M.length !== m) state.altMatrices[c] = emptyMatrix(m);
+function setStepper() {
+  document.querySelectorAll("#stepper li").forEach(li => {
+    const s = +li.dataset.step;
+    li.classList.toggle("done", s < state.step);
+    li.classList.toggle("now", s === state.step);
   });
 }
 
-function selectFor(value) {
-  const s = document.createElement("select");
-  SAATY_OPTIONS.forEach(o => {
-    const opt = document.createElement("option");
-    opt.value = o.v;
-    opt.textContent = o.label;
-    if (Math.abs(o.v - value) < 1e-9) opt.selected = true;
-    s.appendChild(opt);
-  });
-  return s;
+function render() {
+  setStepper();
+  const sc = $("screen");
+  if (state.step === 1) return renderGoal(sc);
+  if (state.step === 2) return renderList(sc, "crit");
+  if (state.step === 3) return renderList(sc, "alt");
+  if (state.step === 4) return renderCompare(sc);
+  return renderResult(sc);
 }
 
-function buildMatrixTable(labels, matrix, onChange) {
-  const t = document.createElement("table");
-  t.className = "matrix";
-  const thead = document.createElement("tr");
-  thead.appendChild(Object.assign(document.createElement("th"), { textContent: "▼ linha \\ coluna ▶" }));
-  labels.forEach(l => {
-    const th = document.createElement("th");
-    th.textContent = l;
-    thead.appendChild(th);
-  });
-  t.appendChild(thead);
-  const selects = [];
-  labels.forEach((rowLabel, i) => {
-    const tr = document.createElement("tr");
-    const corner = document.createElement("td");
-    corner.className = "corner";
-    corner.textContent = rowLabel;
-    tr.appendChild(corner);
-    labels.forEach((_, j) => {
-      const td = document.createElement("td");
-      if (i === j) {
-        td.className = "diag";
-        td.textContent = "1";
-      } else if (i < j) {
-        const sel = selectFor(matrix[i][j]);
-        sel.dataset.i = i; sel.dataset.j = j;
-        sel.addEventListener("change", () => {
-          const v = parseFloat(sel.value);
-          matrix[i][j] = v;
-          matrix[j][i] = 1 / v;
-          buildAll(); // reconstrói para espelhar recíproco
-          livePreview();
-        });
-        td.appendChild(sel);
-        selects.push(sel);
-      } else {
-        const v = matrix[i][j];
-        td.textContent = v >= 1 ? String(Math.round(v)) : "1/" + Math.round(1 / v);
-        td.title = "Recíproco automático";
-        td.style.color = "#64748b";
-        td.style.padding = "9px";
-      }
-      tr.appendChild(td);
+// Passo 1
+function renderGoal(sc) {
+  sc.innerHTML = `
+    <h2>O que você quer decidir?</h2>
+    <p class="lead">Escreva com suas palavras. Exemplos: "qual carro comprar", "onde morar", "qual fornecedor contratar".</p>
+    <label class="field" for="goal">Minha decisão é…</label>
+    <input id="goal" class="big-input" placeholder="Ex.: Escolher o melhor carro" value="${escapeHtml(state.goal)}" />
+    <div class="row space">
+      <button class="linklike" id="exBtn">👀 ver exemplo pronto</button>
+      <button class="primary" id="next1">Continuar →</button>
+    </div>`;
+  $("next1").onclick = () => {
+    const g = $("goal").value.trim();
+    if (!g) { $("goal").focus(); $("goal").style.borderColor = "#dc2626"; return; }
+    state.goal = g;
+    state.step = 2;
+    render();
+  };
+  $("exBtn").onclick = () => { loadExample(); };
+}
+
+// Passo 2/3 (genérico)
+function renderList(sc, kind) {
+  const isCrit = kind === "crit";
+  const items = isCrit ? state.criteria : state.alternatives;
+  const max = 5;
+  sc.innerHTML = `
+    <h2>${isCrit ? "O que importa nessa decisão?" : "Quais são as opções?"}</h2>
+    <p class="lead">${isCrit
+      ? "Liste de 2 a 5 pontos importantes. Ex.: preço, conforto, segurança."
+      : "Liste de 2 a 5 alternativas. Ex.: Carro A, Carro B, Carro C."}</p>
+    <div id="items"></div>
+    <div class="row">
+      <button id="add">+ Adicionar</button>
+      <button id="rm" class="ghost">− Remover último</button>
+    </div>
+    <div class="count-note" id="countNote"></div>
+    <div class="row space">
+      <button class="ghost" id="back">← Voltar</button>
+      <button class="primary" id="next">Continuar →</button>
+    </div>`;
+
+  const box = $("items");
+  const draw = () => {
+    box.innerHTML = "";
+    items.forEach((val, i) => {
+      const row = document.createElement("div");
+      row.className = "item-row";
+      row.innerHTML = `<input data-i="${i}" value="${escapeHtml(val)}" placeholder="${isCrit ? "Ex.: preço" : "Ex.: Opção " + (i + 1)}" />
+        ${items.length > 2 ? `<button data-del="${i}" title="Excluir">✕</button>` : ""}`;
+      box.appendChild(row);
     });
-    t.appendChild(tr);
+    box.querySelectorAll("input").forEach(inp => {
+      inp.oninput = () => { items[+inp.dataset.i] = inp.value; updateCount(); };
+    });
+    box.querySelectorAll("[data-del]").forEach(b => {
+      b.onclick = () => { syncItems(); items.splice(+b.dataset.del, 1); render(); };
+    });
+    updateCount();
+  };
+  const syncItems = () => {
+    box.querySelectorAll("input").forEach(inp => { items[+inp.dataset.i] = inp.value; });
+  };
+  const updateCount = () => {
+    syncItems();
+    const filled = items.map(s => s.trim()).filter(Boolean);
+    const nC = isCrit ? filled.length : state.criteria.filter(s => s.trim()).length;
+    const nA = isCrit ? state.alternatives.filter(s => s.trim()).length : filled.length;
+    const n = (isCrit || state.step === 3) ? questionCount(Math.max(nC, 2), Math.max(nA, 2)) : 0;
+    $("countNote").innerHTML = filled.length < 2
+      ? `⚠ Preencha pelo menos <strong>2 itens</strong>.`
+      : `✔ Com ${nC} critério(s) e ${nA} opção(ões), faremos <strong>${n} perguntinhas</strong> rápidas. Quanto menos itens, mais rápido.`;
+  };
+  draw();
+  $("add").onclick = () => {
+    if (items.length >= max) return alert(`Máximo de ${max} itens — mais que isso vira uma eternidade de perguntas.`);
+    syncItems(); items.push(""); render();
+  };
+  $("rm").onclick = () => {
+    if (items.length <= 2) return alert("Mínimo de 2 itens.");
+    syncItems(); items.pop(); render();
+  };
+  $("back").onclick = () => { syncItems(); state.step -= 1; render(); };
+  $("next").onclick = () => {
+    syncItems();
+    const filled = items.map(s => s.trim()).filter(Boolean);
+    if (filled.length < 2) return alert("Preencha pelo menos 2 itens.");
+    if (isCrit) state.criteria = filled; else state.alternatives = filled;
+    ensureMatrices();
+    state.step += 1;
+    if (state.step === 4) startQuestions();
+    render();
+  };
+}
+
+// Passo 4
+function startQuestions() {
+  state.questions = buildQuestionQueue(state.criteria, state.alternatives);
+  state.answers = state.questions.map(() => null);
+  state.qIndex = 0;
+  state.phase = "side";
+  state.pickedSide = null;
+}
+
+function renderCompare(sc) {
+  if (state.phase === "overview") return renderOverview(sc);
+  const q = state.questions[state.qIndex];
+  const total = state.questions.length;
+  const groupTag = q.type === "criteria"
+    ? `⚖️ Comparando critérios · pergunta ${state.qIndex + 1} de ${total}`
+    : `🔎 Opções em “${escapeHtml(q.crit)}” · pergunta ${state.qIndex + 1} de ${total}`;
+  const question = q.type === "criteria"
+    ? `Para <strong>${escapeHtml(state.goal.toLowerCase())}</strong>, o que pesa mais?`
+    : `Pensando <strong>só em ${escapeHtml(q.crit.toLowerCase())}</strong>, qual opção é melhor?`;
+
+  let body = `<span class="qtag">${groupTag}</span>
+    <div class="qbar"><div style="width:${(state.qIndex / total * 100).toFixed(0)}%"></div></div>
+    <p class="qtext">${question}</p>`;
+
+  if (state.phase === "side") {
+    body += `<div class="vs">
+        <button id="pickA">${escapeHtml(q.a)}</button>
+        <button id="pickB">${escapeHtml(q.b)}</button>
+      </div>
+      <div class="row" style="justify-content:center"><button class="ghost" id="pickEq">🤝 São equivalentes</button></div>`;
+  } else {
+    const winner = state.pickedSide === "A" ? q.a : q.b;
+    const loser = state.pickedSide === "A" ? q.b : q.a;
+    body += `<p class="hint"><strong>${escapeHtml(winner)}</strong> ganhou. Quanto mais?</p>
+      <div class="levels">` + LEVELS.map(l =>
+        `<button data-v="${l.v}"><strong>${l.t} mais importante</strong><small>${escapeHtml(winner)} ${l.d}</small></button>`
+      ).join("") + `</div>
+      <div class="row"><button class="ghost" id="backSide">← Trocar escolha</button></div>`;
+  }
+
+  body += `<div class="row space">
+      <button class="linklike" id="qback">← Voltar</button>
+      <button class="linklike" id="qall">Ver todas as respostas</button>
+    </div>`;
+  sc.innerHTML = body;
+
+  if (state.phase === "side") {
+    $("pickA").onclick = () => { state.pickedSide = "A"; state.phase = "intensity"; render(); };
+    $("pickB").onclick = () => { state.pickedSide = "B"; state.phase = "intensity"; render(); };
+    $("pickEq").onclick = () => saveAnswer({ side: "equal", intensity: 1 });
+  } else {
+    sc.querySelectorAll("[data-v]").forEach(b => {
+      b.onclick = () => saveAnswer({ side: state.pickedSide, intensity: +b.dataset.v });
+    });
+    $("backSide").onclick = () => { state.phase = "side"; render(); };
+  }
+  $("qback").onclick = () => {
+    if (state.phase === "intensity") { state.phase = "side"; render(); return; }
+    if (state.qIndex === 0) { state.step = 3; render(); return; }
+    state.qIndex -= 1; state.phase = "side"; state.pickedSide = null; render();
+  };
+  $("qall").onclick = () => { state.phase = "overview"; render(); };
+}
+
+function saveAnswer(ans) {
+  const q = state.questions[state.qIndex];
+  state.answers[state.qIndex] = ans;
+  applyAnswer(q, ans);
+  state.pickedSide = null;
+  if (state.qIndex + 1 >= state.questions.length) {
+    finishAndShowResult();
+    return;
+  }
+  state.qIndex += 1;
+  state.phase = "side";
+  render();
+}
+
+function renderOverview(sc) {
+  const items = state.questions.map((q, i) => {
+    const tag = q.type === "criteria" ? "Critérios" : escapeHtml(q.crit);
+    return `<li><span><strong>${tag}:</strong> ${escapeHtml(q.a)} × ${escapeHtml(q.b)} — <em>${escapeHtml(describeAnswer(q, state.answers[i]))}</em></span>
+      <button data-j="${i}">Editar</button></li>`;
+  }).join("");
+  const done = state.answers.filter(Boolean).length;
+  sc.innerHTML = `<h2>Suas respostas (${done} de ${state.questions.length})</h2>
+    <p class="lead">Toque em <strong>Editar</strong> para mudar qualquer resposta.</p>
+    <ul class="ans-list">${items}</ul>
+    <div class="row space">
+      <button class="ghost" id="ovBack">← Voltar às perguntas</button>
+      ${done === state.questions.length ? `<button class="primary" id="ovGo">Ver resultado →</button>` : ""}
+    </div>`;
+  sc.querySelectorAll("[data-j]").forEach(b => {
+    b.onclick = () => { state.qIndex = +b.dataset.j; state.phase = "side"; state.pickedSide = null; render(); };
   });
-  return t;
+  $("ovBack").onclick = () => { state.phase = "side"; render(); };
+  const go = $("ovGo");
+  if (go) go.onclick = () => finishAndShowResult();
 }
 
-function buildAll() {
-  ensureMatrices();
-  // matriz critérios
-  const wrap = $("criteriaMatrixWrap");
-  wrap.innerHTML = "";
-  wrap.appendChild(buildMatrixTable(state.criteria, state.critMatrix));
-  // matrizes alternativas
-  const box = $("altMatrices");
-  box.innerHTML = "";
-  state.criteria.forEach(c => {
-    const h = document.createElement("h3");
-    h.textContent = "Critério: " + c;
-    const div = document.createElement("div");
-    div.className = "alt-matrix";
-    div.appendChild(buildMatrixTable(state.alternatives, state.altMatrices[c]));
-    const res = document.createElement("div");
-    res.className = "result";
-    res.id = "res-" + c;
-    box.appendChild(h);
-    box.appendChild(div);
-    box.appendChild(res);
-  });
-}
-
-function consistencyBadge(CR) {
-  return CR < 0.10
-    ? `<span class="badge ok">✔ consistente (CR &lt; 10%)</span>`
-    : `<span class="badge bad">✖ inconsistente — revise os julgamentos (CR ≥ 10%)</span>`;
-}
-
-function livePreview() {
-  const r = calcAHP(state.critMatrix);
-  if (!r) return;
-  $("criteriaResult").innerHTML =
-    `<strong>Pesos dos critérios:</strong> ` +
-    state.criteria.map((c, i) => `${escapeHtml(c)} = <strong>${fmtPct(r.weights[i])}</strong>`).join(" · ") +
-    `<br>λ<sub>máx</sub> = ${fmt(r.lambdaMax)} · CI = ${fmt(r.CI)} · RI(${r.n}) = ${String(RI[r.n]).replace(".", ",")} · <strong>CR = ${fmt(r.CR * 100, 2)}%</strong> ` +
-    consistencyBadge(r.CR);
-}
-
-// ---------- Cálculo final ----------
-function calculateAll() {
-  syncFromEditors();
-  ensureMatrices();
+// Passo 5
+function finishAndShowResult() {
   const rc = calcAHP(state.critMatrix);
   const perCrit = {};
   state.criteria.forEach(c => { perCrit[c] = calcAHP(state.altMatrices[c]); });
-
-  // síntese
-  const m = state.alternatives.length;
-  const global = Array(m).fill(0);
-  state.criteria.forEach((c, j) => {
-    perCrit[c].weights.forEach((w, i) => { global[i] += rc.weights[j] * w; });
-  });
+  const global = state.alternatives.map((_, i) =>
+    state.criteria.reduce((s, c, j) => s + rc.weights[j] * perCrit[c].weights[i], 0));
   const ranking = state.alternatives.map((a, i) => ({ alt: a, score: global[i] }))
     .sort((x, y) => y.score - x.score);
-
-  // render resultado
-  let html = `<div class="calc-box"><strong>Pesos dos critérios</strong><br>` +
-    state.criteria.map((c, j) => `${escapeHtml(c)}: <strong>${fmtPct(rc.weights[j])}</strong>`).join(" · ") +
-    `<br>λ<sub>máx</sub>=${fmt(rc.lambdaMax)} · CI=${fmt(rc.CI)} · CR=<strong>${fmt(rc.CR * 100, 2)}%</strong> ${consistencyBadge(rc.CR)}</div>`;
-
-  html += `<table class="prio-table"><tr><th>Alternativa</th>` +
-    state.criteria.map(c => `<th>${escapeHtml(c)} (${fmtPct(rc.weights[state.criteria.indexOf(c)])})</th>`).join("") +
-    `<th>Prioridade GLOBAL</th></tr>`;
-  state.alternatives.forEach((a, i) => {
-    html += `<tr><td><strong>${escapeHtml(a)}</strong></td>` +
-      state.criteria.map(c => `<td>${fmtPct(perCrit[c].weights[i])}</td>`).join("") +
-      `<td><strong>${fmtPct(global[i])}</strong></td></tr>`;
-  });
-  html += `</table>`;
-
-  const allCR = [rc, ...Object.values(perCrit)].every(r => r.CR < 0.10);
-  html += `<p><strong>Ranking:</strong> ` + ranking.map((r, k) => `${k + 1}º ${escapeHtml(r.alt)} (${fmtPct(r.score)})`).join(" › ") + "</p>";
-  html += allCR
-    ? `<p><span class="badge ok">✔ decisão válida — todas as matrizes consistentes</span></p>`
-    : `<p><span class="badge bad">✖ atenção — alguma matriz está inconsistente (CR ≥ 10%). Revise as comparações.</span></p>`;
-  $("finalResult").innerHTML = html;
-
-  // gráfico
-  const max = Math.max(...global, 0.001);
-  $("chart").innerHTML = ranking.map((r, k) =>
-    `<div class="bar-row"><span>${k + 1}º ${escapeHtml(r.alt)}</span>` +
-    `<div class="bar-track"><div class="bar-fill ${k === 0 ? "winner" : ""}" style="width:${(r.score / max * 100).toFixed(1)}%"></div></div>` +
-    `<strong>${fmtPct(r.score)}</strong></div>`).join("");
-
-  // passo a passo didático (matriz de critérios)
-  $("steps").innerHTML =
-    `<div class="calc-box"><strong>Como o cálculo foi feito (matriz de critérios):</strong><br>` +
-    `1️⃣ Somam-se as colunas: [${rc.colSums.map(v => fmt(v, 3)).join(" · ")}].<br>` +
-    `2️⃣ Normaliza-se cada célula (valor ÷ soma da coluna).<br>` +
-    `3️⃣ O peso de cada critério é a <strong>média da linha</strong> normalizada.<br>` +
-    `4️⃣ Calcula-se <code>A·w</code>, divide-se por <code>w</code> e tira-se a média → λ<sub>máx</sub> = ${fmt(rc.lambdaMax)}.<br>` +
-    `5️⃣ CI = (λ<sub>máx</sub> − n)/(n−1) = ${fmt(rc.CI)} · CR = CI/RI = ${fmt(rc.CR * 100, 2)}%.<br>` +
-    `6️⃣ Repete-se para cada critério × alternativas e sintetiza-se: global = Σ peso<sub>crit</sub> × peso<sub>local</sub>.</div>`;
-
-  // previews por critério
-  state.criteria.forEach(c => {
-    const r = perCrit[c];
-    const el = document.getElementById("res-" + c);
-    if (el) el.innerHTML =
-      state.alternatives.map((a, i) => `${escapeHtml(a)} = <strong>${fmtPct(r.weights[i])}</strong>`).join(" · ") +
-      `<br>λ<sub>máx</sub>=${fmt(r.lambdaMax)} · CI=${fmt(r.CI)} · CR=<strong>${fmt(r.CR * 100, 2)}%</strong> ` + consistencyBadge(r.CR);
-  });
-  livePreview();
+  state.result = { rc, perCrit, global, ranking };
+  state.step = 5;
+  render();
 }
 
-// ---------- Exemplo ----------
+function groupQuestionIndex(type, cj) {
+  return state.questions.findIndex(q =>
+    type === "criteria" ? q.type === "criteria" : (q.type === "alt" && q.cj === cj));
+}
+
+function renderResult(sc) {
+  const { rc, perCrit, global, ranking } = state.result;
+  const win = ranking[0];
+  const topC = state.criteria.map((c, j) => ({ c, w: rc.weights[j] })).sort((a, b) => b.w - a.w)[0];
+  const max = Math.max(...global, 0.001);
+
+  const groups = [
+    { name: "critérios em geral", r: rc, type: "criteria", cj: -1 },
+    ...state.criteria.map((c, cj) => ({ name: `opções em “${c}”`, r: perCrit[c], type: "alt", cj })),
+  ];
+  const bad = groups.filter(g => g.r.CR >= 0.10);
+
+  let coherence;
+  if (bad.length === 0) {
+    coherence = `<div class="coherence ok">✔ <strong>Suas respostas foram coerentes.</strong> Nada se contradiz — pode confiar no resultado.</div>`;
+  } else {
+    coherence = `<div class="coherence bad">⚠ <strong>Há uma contradição nas suas respostas</strong> ${bad.map(g =>
+      `sobre <strong>${escapeHtml(g.name)}</strong>`).join(" e ")}.
+      Isso acontece quando dizemos, por exemplo, que A ganha de B, B ganha de C, mas C ganha de A.
+      <div class="row">${bad.map((g, k) => `<button data-rev="${g.type}:${g.cj}">Rever ${escapeHtml(g.name)}</button>`).join("")}</div></div>`;
+  }
+
+  sc.innerHTML = `
+    <h2>Resultado para: ${escapeHtml(state.goal)}</h2>
+    <div class="winner"><div class="trophy">🏆</div>
+      <div>A melhor escolha para você é</div><h3>${escapeHtml(win.alt)}</h3>
+      <div class="hint">${fmtPct(win.score)} da pontuação total</div></div>
+    <div id="bars">` + ranking.map((r, k) =>
+      `<div class="bar-row"><span>${k + 1}º ${escapeHtml(r.alt)}</span>
+       <div class="bar-track"><div class="bar-fill ${k === 0 ? "winner-fill" : ""}" style="width:${(r.score / max * 100).toFixed(1)}%"></div></div>
+       <strong>${fmtPct(r.score)}</strong></div>`).join("") + `</div>
+    <p>💡 <strong>Por quê?</strong> O que mais contou na sua decisão foi <strong>${escapeHtml(topC.c)} (${fmtPct(topC.w)} do peso)</strong>.</p>
+    ${coherence}
+    <div class="row space">
+      <button class="ghost" id="adjust">✏️ Ajustar respostas</button>
+      <button class="ghost" id="restart">↺ Nova decisão</button>
+    </div>
+    <details class="tech"><summary>🔬 Ver os cálculos (para curiosos e professores)</summary>
+      <div id="techBody"></div></details>`;
+
+  sc.querySelectorAll("[data-rev]").forEach(b => {
+    b.onclick = () => {
+      const [type, cj] = b.dataset.rev.split(":");
+      state.qIndex = Math.max(0, groupQuestionIndex(type, +cj));
+      state.phase = "side"; state.pickedSide = null; state.step = 4; render();
+    };
+  });
+  $("adjust").onclick = () => { state.step = 4; state.phase = "overview"; render(); };
+  $("restart").onclick = () => {
+    state.step = 1; state.goal = "";
+    state.criteria = ["", ""]; state.alternatives = ["", ""];
+    state.result = null; render();
+  };
+
+  // Detalhe técnico (opcional)
+  const tb = $("techBody");
+  const mTable = (labels, M) => `<table class="matrix"><tr><th></th>${labels.map(l => `<th>${escapeHtml(l)}</th>`).join("")}</tr>` +
+    M.map((row, i) => `<tr><th>${escapeHtml(labels[i])}</th>${row.map(v =>
+      `<td>${v >= 1 ? v : "1/" + Math.round(1 / v)}</td>`).join("")}</tr>`).join("") + `</table>`;
+  tb.innerHTML =
+    `<p><strong>Pesos dos critérios:</strong> ${state.criteria.map((c, j) => `${escapeHtml(c)} = ${fmtPct(rc.weights[j])}`).join(" · ")}</p>` +
+    `<p>λ<sub>máx</sub>=${rc.lambdaMax.toFixed(4).replace(".", ",")} · CI=${rc.CI.toFixed(4).replace(".", ",")} · CR=<strong>${(rc.CR * 100).toFixed(2).replace(".", ",")}%</strong> (ok se &lt; 10%)</p>` +
+    mTable(state.criteria, state.critMatrix) +
+    state.criteria.map(c => `<p><strong>${escapeHtml(c)}:</strong> ` +
+      state.alternatives.map((a, i) => `${escapeHtml(a)} = ${fmtPct(perCrit[c].weights[i])}`).join(" · ") +
+      ` (CR=${(perCrit[c].CR * 100).toFixed(2).replace(".", ",")}%)</p>` + mTable(state.alternatives, state.altMatrices[c])).join("");
+}
+
+// Exemplo pronto
 function loadExample() {
   state.goal = "Escolher o melhor carro";
   state.criteria = ["Custo", "Conforto", "Economia", "Segurança"];
   state.alternatives = ["Carro A", "Carro B", "Carro C"];
-  state.critMatrix = [
-    [1, 1/3, 1/2, 1/4],
-    [3, 1, 2, 1/2],
-    [2, 1/2, 1, 1/3],
-    [4, 2, 3, 1],
-  ];
+  ensureMatrices();
+  state.critMatrix = [[1, 1/3, 1/2, 1/4], [3, 1, 2, 1/2], [2, 1/2, 1, 1/3], [4, 2, 3, 1]];
   state.altMatrices = {
-    "Custo":     [[1, 2, 4], [1/2, 1, 2], [1/4, 1/2, 1]],
-    "Conforto":  [[1, 1/3, 1/2], [3, 1, 2], [2, 1/2, 1]],
-    "Economia":  [[1, 1, 1/2], [1, 1, 1/3], [2, 3, 1]],
+    "Custo": [[1, 2, 4], [1/2, 1, 2], [1/4, 1/2, 1]],
+    "Conforto": [[1, 1/3, 1/2], [3, 1, 2], [2, 1/2, 1]],
+    "Economia": [[1, 1, 1/2], [1, 1, 1/3], [2, 3, 1]],
     "Segurança": [[1, 1/2, 1/4], [2, 1, 1/2], [4, 2, 1]],
   };
-  renderEditors();
-  buildAll();
-  livePreview();
+  finishAndShowResult();
 }
 
-// ---------- Eventos ----------
-$("addCriterion").onclick = () => {
-  if (state.criteria.length >= 10) return alert("Máximo de 10 critérios (limite do RI).");
-  syncFromEditors();
-  state.criteria.push("Critério " + (state.criteria.length + 1));
-  renderEditors(); buildAll(); livePreview();
-};
-$("removeCriterion").onclick = () => {
-  if (state.criteria.length <= 2) return alert("Mínimo de 2 critérios.");
-  syncFromEditors();
-  state.criteria.pop();
-  renderEditors(); buildAll(); livePreview();
-};
-$("addAlt").onclick = () => {
-  if (state.alternatives.length >= 10) return alert("Máximo de 10 alternativas.");
-  syncFromEditors();
-  state.alternatives.push("Alternativa " + (state.alternatives.length + 1));
-  renderEditors(); buildAll(); livePreview();
-};
-$("removeAlt").onclick = () => {
-  if (state.alternatives.length <= 2) return alert("Mínimo de 2 alternativas.");
-  syncFromEditors();
-  state.alternatives.pop();
-  renderEditors(); buildAll(); livePreview();
-};
-$("rebuildBtn").onclick = () => { syncFromEditors(); renderEditors(); buildAll(); livePreview(); };
-$("loadExample").onclick = loadExample;
-$("calcBtn").onclick = calculateAll;
-
-// init
-loadExample();
+if (typeof document !== "undefined") render();
