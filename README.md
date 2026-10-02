@@ -10,7 +10,7 @@ Projeto web interativo (sem build, sem dependências) que exemplifica o **métod
 ## Como usar (para qualquer pessoa)
 1. Abra o site e escreva **o que quer decidir**.
 2. Liste **o que importa** (critérios) e **as opções**.
-3. Responda **uma perguntinha por vez** em linguagem simples (“o que pesa mais: Custo ou Conforto?” → “quanto mais?”). Barra de progresso mostra onde você está; dá para voltar e editar qualquer resposta em “Ver todas as respostas”.
+3. Responda **uma perguntinha por vez arrastando um slider** (“para onde pesa mais?”) com frase-resumo ao vivo. Se uma resposta se contradiz com as anteriores, o app avisa **na hora** e mostra exatamente onde está a contradição. Barra de progresso mostra onde você está; dá para voltar e editar qualquer resposta em “ver todas as respostas”.
 4. Receba o **resultado em português claro**: vencedor em destaque, gráfico, o porquê (“Segurança foi o que mais pesou: 46%”) e um aviso se suas respostas se contradizem, com botão para rever o ponto exato.
 5. Detalhes matemáticos (matrizes, λ<sub>máx</sub>, CR) ficam escondidos em “🔬 Ver os cálculos”.
 

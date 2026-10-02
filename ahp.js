@@ -28,17 +28,31 @@ function calcAHP(matrix) {
 const RI = { 1: 0, 2: 0, 3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49 };
 
 // ---------- Lógica pura (testável, sem DOM) ----------
-const LEVELS = [
-  { v: 3, t: "Um pouco mais", d: "pesa um pouco mais na decisão" },
-  { v: 5, t: "Bem mais", d: "pesa bem mais na decisão" },
-  { v: 7, t: "Muito mais", d: "pesa muito mais na decisão" },
-  { v: 9, t: "Extremamente mais", d: "é disparado o mais importante" },
-];
+// Escala do slider: 9 paradas (-4..+4). Negativo = A vence, 0 = empate, positivo = B vence.
+// Magnitudes ímpares de Saaty (3/5/7/9); pares intermediários omitidos de propósito (menos ruído).
+function sliderIndexToValue(idx) {
+  const k = Math.abs(idx);
+  const mag = k === 0 ? 1 : k === 1 ? 3 : k === 2 ? 5 : k === 3 ? 7 : 9;
+  return idx <= 0 ? mag : 1 / mag;
+}
 
-// side: 'A' | 'B' | 'equal' → valor de M[i][j] na escala Saaty
-function answerToValue(side, intensity) {
-  if (side === "equal") return 1;
-  return side === "A" ? intensity : 1 / intensity;
+function valueToSliderIndex(v) {
+  let best = 0, bd = Infinity;
+  for (let i = -4; i <= 4; i++) {
+    const d = Math.abs(Math.log(sliderIndexToValue(i) / v));
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
+const MAG_WORD = { 3: "um pouco mais", 5: "bem mais", 7: "muito mais", 9: "extremamente mais" };
+
+function sliderSentence(idx, a, b) {
+  if (idx === 0) return `${a} e ${b} têm o <strong>mesmo peso</strong> para você.`;
+  const mag = idx < 0 ? sliderIndexToValue(idx) : 1 / sliderIndexToValue(idx);
+  const winner = idx < 0 ? a : b;
+  const loser = idx < 0 ? b : a;
+  return `${winner} pesa <strong>${MAG_WORD[mag]}</strong> que ${loser}.`;
 }
 
 function questionCount(nCrit, nAlt) {
@@ -75,9 +89,9 @@ const state = {
   altMatrices: {},
   questions: [],
   qIndex: 0,
-  phase: "side", // 'side' | 'intensity' | 'overview'
-  pickedSide: null,
-  answers: [], // por pergunta: {side, intensity} | null
+  sliderIdx: 0, // posição atual do slider (-4..+4)
+  pendingNudge: null, // {groupName, cycleText} — contradição recém-criada
+  answers: [], // por pergunta: {v} | null
   result: null,
 };
 
@@ -89,19 +103,38 @@ function ensureMatrices() {
 }
 
 function applyAnswer(q, ans) {
-  const v = answerToValue(ans.side, ans.intensity);
   const M = q.type === "criteria" ? state.critMatrix : state.altMatrices[q.crit];
-  M[q.i][q.j] = v;
-  M[q.j][q.i] = 1 / v;
+  M[q.i][q.j] = ans.v;
+  M[q.j][q.i] = 1 / ans.v;
+}
+
+function groupOf(q) {
+  if (q.type === "criteria") return { name: "critérios", labels: state.criteria, matrix: state.critMatrix };
+  return { name: `“${q.crit}”`, labels: state.alternatives, matrix: state.altMatrices[q.crit] };
+}
+
+// Procura um trio intransitivo: X>Y, Y>Z, mas X<Z. É a contradição mais fácil de explicar.
+function findCycle(M) {
+  const n = M.length, EPS = 1.000001;
+  for (let x = 0; x < n; x++)
+    for (let y = 0; y < n; y++) {
+      if (y === x) continue;
+      for (let z = 0; z < n; z++) {
+        if (z === x || z === y) continue;
+        if (M[x][y] > EPS && M[y][z] > EPS && M[x][z] < 1 / EPS) return [x, y, z];
+      }
+    }
+  return null;
 }
 
 function describeAnswer(q, ans) {
   if (!ans) return "ainda não respondida";
-  if (ans.side === "equal") return `${q.a} e ${q.b} empatados`;
-  const winner = ans.side === "A" ? q.a : q.b;
-  const loser = ans.side === "A" ? q.b : q.a;
-  const lvl = LEVELS.find(l => l.v === ans.intensity);
-  return `${winner} ${lvl ? lvl.t.toLowerCase() + " importante" : ""} que ${loser}`;
+  const idx = valueToSliderIndex(ans.v);
+  if (idx === 0) return `${q.a} e ${q.b} empatados`;
+  const mag = idx < 0 ? ans.v : 1 / ans.v;
+  const winner = idx < 0 ? q.a : q.b;
+  const loser = idx < 0 ? q.b : q.a;
+  return `${winner} ${MAG_WORD[Math.round(mag)]} importante que ${loser}`;
 }
 
 // ---------- UI (navegador) ----------
@@ -229,61 +262,54 @@ function startQuestions() {
   state.questions = buildQuestionQueue(state.criteria, state.alternatives);
   state.answers = state.questions.map(() => null);
   state.qIndex = 0;
-  state.phase = "side";
-  state.pickedSide = null;
+  state.sliderIdx = 0;
+  state.pendingNudge = null;
+  state.phase = "ask";
 }
 
 function renderCompare(sc) {
   if (state.phase === "overview") return renderOverview(sc);
+  if (state.pendingNudge) return renderNudge(sc);
   const q = state.questions[state.qIndex];
   const total = state.questions.length;
+  const prev = state.answers[state.qIndex];
+  if (prev && !state.sliderTouched) state.sliderIdx = valueToSliderIndex(prev.v);
   const groupTag = q.type === "criteria"
-    ? `⚖️ Comparando critérios · pergunta ${state.qIndex + 1} de ${total}`
-    : `🔎 Opções em “${escapeHtml(q.crit)}” · pergunta ${state.qIndex + 1} de ${total}`;
+    ? `⚖️ Critérios · pergunta ${state.qIndex + 1} de ${total}`
+    : `🔎 “${escapeHtml(q.crit)}” · pergunta ${state.qIndex + 1} de ${total}`;
   const question = q.type === "criteria"
-    ? `Para <strong>${escapeHtml(state.goal.toLowerCase())}</strong>, o que pesa mais?`
-    : `Pensando <strong>só em ${escapeHtml(q.crit.toLowerCase())}</strong>, qual opção é melhor?`;
+    ? `Para <strong>${escapeHtml(state.goal.toLowerCase())}</strong>, arraste para o lado que pesa mais:`
+    : `Pensando <strong>só em ${escapeHtml(q.crit.toLowerCase())}</strong>, arraste para a melhor opção:`;
 
-  let body = `<span class="qtag">${groupTag}</span>
+  const g = groupOf(q);
+  const gr = calcAHP(g.matrix);
+  const pill = gr.CR < 0.10
+    ? `<span class="badge ok">✔ coerente</span>`
+    : `<span class="badge bad">⚠ contradição neste grupo</span>`;
+
+  sc.innerHTML = `<span class="qtag">${groupTag}</span> ${pill}
     <div class="qbar"><div style="width:${(state.qIndex / total * 100).toFixed(0)}%"></div></div>
-    <p class="qtext">${question}</p>`;
-
-  if (state.phase === "side") {
-    body += `<div class="vs">
-        <button id="pickA">${escapeHtml(q.a)}</button>
-        <button id="pickB">${escapeHtml(q.b)}</button>
-      </div>
-      <div class="row" style="justify-content:center"><button class="ghost" id="pickEq">🤝 São equivalentes</button></div>`;
-  } else {
-    const winner = state.pickedSide === "A" ? q.a : q.b;
-    const loser = state.pickedSide === "A" ? q.b : q.a;
-    body += `<p class="hint"><strong>${escapeHtml(winner)}</strong> ganhou. Quanto mais?</p>
-      <div class="levels">` + LEVELS.map(l =>
-        `<button data-v="${l.v}"><strong>${l.t} mais importante</strong><small>${escapeHtml(winner)} ${l.d}</small></button>`
-      ).join("") + `</div>
-      <div class="row"><button class="ghost" id="backSide">← Trocar escolha</button></div>`;
-  }
-
-  body += `<div class="row space">
+    <p class="qtext">${question}</p>
+    <div class="sat-ends"><span>◀ ${escapeHtml(q.a)}</span><span>${escapeHtml(q.b)} ▶</span></div>
+    <input type="range" class="sat" id="sat" min="-4" max="4" step="1" value="${state.sliderIdx}" />
+    <div class="sat-anchors"><span>${escapeHtml(q.a)} domina</span><span>equivalem-se</span><span>${escapeHtml(q.b)} domina</span></div>
+    <p class="sat-live" id="satLive">${sliderSentence(state.sliderIdx, escapeHtml(q.a), escapeHtml(q.b))}</p>
+    <div class="row space">
       <button class="linklike" id="qback">← Voltar</button>
-      <button class="linklike" id="qall">Ver todas as respostas</button>
-    </div>`;
-  sc.innerHTML = body;
+      <button class="primary" id="qnext">Próxima →</button>
+    </div>
+    <div class="row" style="justify-content:center"><button class="linklike" id="qall">ver todas as respostas</button></div>`;
 
-  if (state.phase === "side") {
-    $("pickA").onclick = () => { state.pickedSide = "A"; state.phase = "intensity"; render(); };
-    $("pickB").onclick = () => { state.pickedSide = "B"; state.phase = "intensity"; render(); };
-    $("pickEq").onclick = () => saveAnswer({ side: "equal", intensity: 1 });
-  } else {
-    sc.querySelectorAll("[data-v]").forEach(b => {
-      b.onclick = () => saveAnswer({ side: state.pickedSide, intensity: +b.dataset.v });
-    });
-    $("backSide").onclick = () => { state.phase = "side"; render(); };
-  }
+  $("sat").oninput = (e) => {
+    state.sliderIdx = +e.target.value;
+    state.sliderTouched = true;
+    $("satLive").innerHTML = sliderSentence(state.sliderIdx, escapeHtml(q.a), escapeHtml(q.b));
+  };
+  $("qnext").onclick = () => saveAnswer({ v: sliderIndexToValue(state.sliderIdx) });
   $("qback").onclick = () => {
-    if (state.phase === "intensity") { state.phase = "side"; render(); return; }
+    state.sliderTouched = false;
     if (state.qIndex === 0) { state.step = 3; render(); return; }
-    state.qIndex -= 1; state.phase = "side"; state.pickedSide = null; render();
+    state.qIndex -= 1; render();
   };
   $("qall").onclick = () => { state.phase = "overview"; render(); };
 }
@@ -292,14 +318,47 @@ function saveAnswer(ans) {
   const q = state.questions[state.qIndex];
   state.answers[state.qIndex] = ans;
   applyAnswer(q, ans);
-  state.pickedSide = null;
+  state.sliderTouched = false;
+  // Coerência na origem: esta resposta quebrou o grupo?
+  const g = groupOf(q);
+  const r = calcAHP(g.matrix);
+  if (r.CR >= 0.10) {
+    const cyc = findCycle(g.matrix);
+    state.pendingNudge = {
+      groupName: g.name,
+      cycleText: cyc
+        ? `${g.labels[cyc[0]]} ganha de ${g.labels[cyc[1]]}, ${g.labels[cyc[1]]} ganha de ${g.labels[cyc[2]]}, mas ${g.labels[cyc[2]]} ganha de ${g.labels[cyc[0]]}`
+        : "as respostas deste grupo se contradizem entre si",
+    };
+    render();
+    return;
+  }
+  advance();
+}
+
+function advance() {
+  state.pendingNudge = null;
   if (state.qIndex + 1 >= state.questions.length) {
     finishAndShowResult();
     return;
   }
   state.qIndex += 1;
-  state.phase = "side";
+  state.sliderIdx = 0;
   render();
+}
+
+function renderNudge(sc) {
+  const n = state.pendingNudge;
+  sc.innerHTML = `<h2>⚠ Pequena contradição</h2>
+    <p class="lead">Esta última resposta se contradiz com as anteriores sobre <strong>${escapeHtml(n.groupName)}</strong>:</p>
+    <p class="qtext" style="font-size:1.02rem">“${escapeHtml(n.cycleText)}.”</p>
+    <p class="hint">Não tem problema — isso acontece. Ajuste a posição do slider ou mantenha assim mesmo (o resultado sai assim mesmo, só com um aviso).</p>
+    <div class="row space">
+      <button class="primary" id="nudgeFix">Ajustar resposta</button>
+      <button class="ghost" id="nudgeKeep">Manter e continuar</button>
+    </div>`;
+  $("nudgeFix").onclick = () => { state.pendingNudge = null; render(); };
+  $("nudgeKeep").onclick = () => advance();
 }
 
 function renderOverview(sc) {
@@ -317,9 +376,9 @@ function renderOverview(sc) {
       ${done === state.questions.length ? `<button class="primary" id="ovGo">Ver resultado →</button>` : ""}
     </div>`;
   sc.querySelectorAll("[data-j]").forEach(b => {
-    b.onclick = () => { state.qIndex = +b.dataset.j; state.phase = "side"; state.pickedSide = null; render(); };
+    b.onclick = () => { state.qIndex = +b.dataset.j; state.phase = "ask"; state.sliderTouched = false; render(); };
   });
-  $("ovBack").onclick = () => { state.phase = "side"; render(); };
+  $("ovBack").onclick = () => { state.phase = "ask"; render(); };
   const go = $("ovGo");
   if (go) go.onclick = () => finishAndShowResult();
 }
@@ -387,7 +446,7 @@ function renderResult(sc) {
     b.onclick = () => {
       const [type, cj] = b.dataset.rev.split(":");
       state.qIndex = Math.max(0, groupQuestionIndex(type, +cj));
-      state.phase = "side"; state.pickedSide = null; state.step = 4; render();
+      state.phase = "ask"; state.sliderTouched = false; state.step = 4; render();
     };
   });
   $("adjust").onclick = () => { state.step = 4; state.phase = "overview"; render(); };

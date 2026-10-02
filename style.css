@@ -48,12 +48,11 @@ button:disabled{opacity:.45;cursor:default}
 .qbar{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:8px 0 16px}
 .qbar>div{height:100%;background:linear-gradient(90deg,#2563eb,#60a5fa);border-radius:999px;transition:width .3s}
 .qtext{font-size:1.15rem;font-weight:600;margin:4px 0 14px}
-.vs{display:flex;gap:10px;margin-bottom:10px}
-.vs button{flex:1;padding:16px 10px;font-size:1.02rem;border-width:2px}
-.vs button.picked{border-color:var(--primary);background:#eff6ff}
-.levels{display:grid;gap:8px;margin-top:6px}
-.levels button{text-align:left;padding:12px 14px}
-.levels button small{display:block;font-weight:400;color:var(--muted)}
+/* slider de comparação */
+.sat-ends{display:flex;justify-content:space-between;font-weight:700;font-size:.95rem;margin-bottom:2px}
+input[type=range].sat{width:100%;accent-color:var(--primary);height:40px;cursor:pointer;margin:0}
+.sat-anchors{display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted);margin-bottom:10px}
+.sat-live{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px 14px;font-size:1rem;margin:4px 0 8px;min-height:48px}
 
 /* overview list */
 .ans-list{list-style:none;padding:0;margin:0}
@@ -81,7 +80,7 @@ table.matrix th{background:#f1f5f9}
 code{background:#f1f5f9;padding:1px 6px;border-radius:6px}
 footer{color:var(--muted);font-size:.85rem;padding:6px 0 30px;text-align:center}
 @media(max-width:560px){
-  .vs{flex-direction:column}
+  .sat-anchors{font-size:.68rem}
   .bar-row{grid-template-columns:96px 1fr 52px}
   .card{padding:18px}
 }
