@@ -113,6 +113,26 @@ function groupOf(q) {
   return { name: `“${q.crit}”`, labels: state.alternatives, matrix: state.altMatrices[q.crit] };
 }
 
+// Pior infrator (inconsistência cardinal, sem ciclo estrito): o par respondido
+// cuja reversão para empate mais reduz o CR. Aponta a resposta concreta a revisar.
+function findWorstOffender(M, answeredPairs) {
+  const base = calcAHP(M);
+  let best = null;
+  answeredPairs.forEach(([i, j]) => {
+    const T = M.map(row => row.slice());
+    T[i][j] = 1; T[j][i] = 1;
+    const r = calcAHP(T);
+    if (!best || r.CR < best.crAfter) best = { i, j, crAfter: r.CR };
+  });
+  if (!best || best.crAfter >= base.CR) return null;
+  return best;
+}
+
+function questionIndexOf(type, cj, i, j) {
+  const qi = Math.min(i, j), qj = Math.max(i, j);
+  return state.questions.findIndex(q =>
+    q.type === type && (type === "criteria" || q.cj === cj) && q.i === qi && q.j === qj);
+}
 // Procura um trio intransitivo: X>Y, Y>Z, mas X<Z. É a contradição mais fácil de explicar.
 function findCycle(M) {
   const n = M.length, EPS = 1.000001;
@@ -417,19 +437,58 @@ function renderResult(sc) {
   const max = Math.max(...global, 0.001);
 
   const groups = [
-    { name: "critérios em geral", r: rc, type: "criteria", cj: -1 },
-    ...state.criteria.map((c, cj) => ({ name: `opções em “${c}”`, r: perCrit[c], type: "alt", cj })),
+    { name: "critérios em geral", short: "critérios", r: rc, type: "criteria", cj: -1, matrix: state.critMatrix, labels: state.criteria },
+    ...state.criteria.map((c, cj) => ({ name: `opções em “${c}”`, short: `“${c}”`, r: perCrit[c], type: "alt", cj, crit: c, matrix: state.altMatrices[c], labels: state.alternatives })),
   ];
+
+  // Pares respondidos do grupo (para leave-one-out no caso cardinal).
+  function groupAnsweredPairs(g) {
+    return state.questions
+      .map((q, idx) => ({ q, idx }))
+      .filter(({ q, idx }) => state.answers[idx] &&
+        (g.type === "criteria" ? q.type === "criteria" : (q.type === "alt" && q.cj === g.cj)))
+      .map(({ q }) => [q.i, q.j]);
+  }
+
+  // Detalhe concreto por grupo problemático: ciclo nominal, ou a resposta
+  // que mais destoa (caso cardinal). Nunca genérico.
+  function groupDetail(g) {
+    const cyc = findCycle(g.matrix);
+    if (cyc) {
+      const [x, y, z] = cyc;
+      return {
+        text: `contradição sobre <strong>${escapeHtml(g.name)}</strong>: “${escapeHtml(g.labels[x])} ganha de ${escapeHtml(g.labels[y])}, ${escapeHtml(g.labels[y])} ganha de ${escapeHtml(g.labels[z])}, mas ${escapeHtml(g.labels[z])} ganha de ${escapeHtml(g.labels[x])}”`,
+        jump: questionIndexOf(g.type, g.cj, x, y),
+        btn: `Rever ${escapeHtml(g.short)}`,
+      };
+    }
+    const off = findWorstOffender(g.matrix, groupAnsweredPairs(g));
+    if (off) {
+      const qi = Math.min(off.i, off.j), qj = Math.max(off.i, off.j);
+      const words = describeAnswer({ a: g.labels[qi], b: g.labels[qj] }, { v: g.matrix[qi][qj] });
+      return {
+        text: `pesos exagerados sobre <strong>${escapeHtml(g.name)}</strong>: você disse que “${escapeHtml(words)}”, mas o resto das respostas não confirma uma diferença tão grande (isso só dá para medir com tudo respondido — por isso o aviso aparece só agora)`,
+        jump: questionIndexOf(g.type, g.cj, qi, qj),
+        btn: `Suavizar essa resposta`,
+      };
+    }
+    return {
+      text: `inconsistência sobre <strong>${escapeHtml(g.name)}</strong>`,
+      jump: groupQuestionIndex(g.type, g.cj),
+      btn: `Rever ${escapeHtml(g.short)}`,
+    };
+  }
+
   const bad = groups.filter(g => g.r.CR >= 0.10);
 
   let coherence;
   if (bad.length === 0) {
     coherence = `<div class="coherence ok">✔ <strong>Suas respostas foram coerentes.</strong> Nada se contradiz — pode confiar no resultado.</div>`;
   } else {
-    coherence = `<div class="coherence bad">⚠ <strong>Há uma contradição nas suas respostas</strong> ${bad.map(g =>
-      `sobre <strong>${escapeHtml(g.name)}</strong>`).join(" e ")}.
-      Isso acontece quando dizemos, por exemplo, que A ganha de B, B ganha de C, mas C ganha de A.
-      <div class="row">${bad.map((g, k) => `<button data-rev="${g.type}:${g.cj}">Rever ${escapeHtml(g.name)}</button>`).join("")}</div></div>`;
+    const details = bad.map(groupDetail);
+    coherence = `<div class="coherence bad">⚠ <strong>Há um problema nas suas respostas:</strong><ul>` +
+      details.map(d => `<li>${d.text}.</li>`).join("") + `</ul>
+      <div class="row">${details.map(d => `<button data-rev-idx="${d.jump}">${d.btn}</button>`).join("")}</div></div>`;
   }
 
   sc.innerHTML = `
@@ -450,10 +509,9 @@ function renderResult(sc) {
     <details class="tech"><summary>🔬 Ver os cálculos (para curiosos e professores)</summary>
       <div id="techBody"></div></details>`;
 
-  sc.querySelectorAll("[data-rev]").forEach(b => {
+  sc.querySelectorAll("[data-rev-idx]").forEach(b => {
     b.onclick = () => {
-      const [type, cj] = b.dataset.rev.split(":");
-      state.qIndex = Math.max(0, groupQuestionIndex(type, +cj));
+      state.qIndex = Math.max(0, +b.dataset.revIdx);
       state.phase = "ask"; state.sliderTouched = false; state.step = 4; render();
     };
   });
