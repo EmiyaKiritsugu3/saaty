@@ -286,11 +286,13 @@ function renderCompare(sc) {
     ? `Para <strong>${escapeHtml(state.goal.toLowerCase())}</strong>, arraste para o lado que pesa mais:`
     : `Pensando <strong>só em ${escapeHtml(q.crit.toLowerCase())}</strong>, arraste para a melhor opção:`;
 
+  // Selo de coerência: só acusa quando há contradição concreta (ciclo
+  // identificável). CR de matriz ainda incompleta não significa contradição —
+  // um único julgamento forte já passa de 10% sozinho.
   const g = groupOf(q);
-  const gr = calcAHP(g.matrix);
-  const pill = gr.CR < 0.10
-    ? `<span class="badge ok">✔ coerente</span>`
-    : `<span class="badge bad">⚠ contradição neste grupo</span>`;
+  const pill = findCycle(g.matrix)
+    ? `<span class="badge bad">⚠ contradição neste grupo</span>`
+    : `<span class="badge ok">✔ coerente</span>`;
 
   sc.innerHTML = `<span class="qtag">${groupTag}</span> ${pill}
     <div class="qbar"><div style="width:${(state.qIndex / total * 100).toFixed(0)}%"></div></div>
