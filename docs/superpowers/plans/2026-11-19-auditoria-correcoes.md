@@ -62,8 +62,8 @@ git commit -m "fix(correction): corrige ReferenceError no botao corrigir todos"
 
 - [ ] **Step 1: Criar `package.json` com `{"name":"saaty-ahp","private":true,"scripts":{"test":"node --test test/*.test.js"}}`. Sem `dependencies`.**
 - [ ] **Step 2: Criar `const EXAMPLE = {...}` em `ahp.js` com `goal`, `criteria`, `alternatives`, `critMatrix`, `altMatrices` (valores atuais de `loadExample`) e fazer `loadExample()` copiar dali. Adicionar guarda `if (typeof module !== "undefined" && module.exports) module.exports = {...}` no fim do arquivo, após o bootstrap do navegador.**
-- [ ] **Step 3: Escrever testes `node:test`: `calcAHP` do exemplo (CR < 0.10 e |soma pesos − 1| < 1e-9), reciprocidade, `questionCount(4,3) === 28`, tamanho de `buildQuestionQueue`, `findCycle` em matriz intransitiva, `sliderIndexToValue` no mapa completo (−4→9 … 4→1/9) e `EXAMPLE` igual a `exemplo.json` (comparação numérica com tolerância 1e-9).**
-- [ ] **Step 4: Rodar `npm test`; esperado PASS com 8+ testes.**
+- [ ] **Step 3: Escrever testes `node:test`: `calcAHP` do exemplo (CR < 0.10 e |soma pesos − 1| < 1e-9), reciprocidade, `questionCount(4,3) === 18`, tamanho de `buildQuestionQueue`, `findCycle` em matriz intransitiva, `sliderIndexToValue` no mapa completo (−4→9 … 4→1/9) e `EXAMPLE` igual a `exemplo.json` (comparação numérica com tolerância 1e-9).**
+- [ ] **Step 4: Rodar `npm test`; esperado PASS com 7 testes.**
 - [ ] **Step 5: Commit**
 
 ```bash
