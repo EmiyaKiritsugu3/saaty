@@ -55,6 +55,20 @@ function sliderSentence(idx, a, b) {
   return `${winner} pesa <strong>${MAG_WORD[mag]}</strong> que ${loser}.`;
 }
 
+// Texto falado pelo leitor de tela para a posição atual do slider.
+function setSliderValueText(idx, a, b) {
+  const el = $("sat");
+  if (!el) return;
+  if (idx === 0) {
+    el.setAttribute("aria-valuetext", `${a} e ${b} têm o mesmo peso`);
+    return;
+  }
+  const mag = Math.abs(sliderIndexToValue(idx));
+  const winner = idx < 0 ? a : b;
+  const loser = idx < 0 ? b : a;
+  el.setAttribute("aria-valuetext", `${winner} pesa ${MAG_WORD[mag]} que ${loser}`);
+}
+
 function questionCount(nCrit, nAlt) {
   return (nCrit * (nCrit - 1)) / 2 + nCrit * ((nAlt * (nAlt - 1)) / 2);
 }
@@ -92,6 +106,7 @@ const state = {
   queueDims: null, // dims {nCrit, nAlt} usadas para construir questions (carimbo anti-obsoleto)
   correction: null, // {queue:[qIdx], pos} — fila só com os pontos problemáticos
   sliderIdx: 0, // posição atual do slider (-4..+4)
+  sliderTouched: false, // usuário moveu o slider desde a última pergunta
   pendingNudge: null, // {groupName, cycleText} — contradição recém-criada
   answers: [], // por pergunta: {v} | null
   result: null,
@@ -179,11 +194,14 @@ function setStepper() {
 function render() {
   setStepper();
   const sc = $("screen");
-  if (state.step === 1) return renderGoal(sc);
-  if (state.step === 2) return renderList(sc, "crit");
-  if (state.step === 3) return renderList(sc, "alt");
-  if (state.step === 4) return renderCompare(sc);
-  return renderResult(sc);
+  if (state.step === 1) renderGoal(sc);
+  else if (state.step === 2) renderList(sc, "crit");
+  else if (state.step === 3) renderList(sc, "alt");
+  else if (state.step === 4) renderCompare(sc);
+  else renderResult(sc);
+  // Cada render troca o innerHTML; devolver o foco ao painel evita que
+  // usuários de teclado voltem ao topo da página a cada pergunta.
+  if (sc && typeof sc.focus === "function") sc.focus({ preventScroll: true });
 }
 
 // Passo 1
@@ -204,6 +222,7 @@ function renderGoal(sc) {
     state.step = 2;
     render();
   };
+  $("goal").onkeydown = (e) => { if (e.key === "Enter") $("next1").click(); };
   $("exBtn").onclick = () => { loadExample(); };
 }
 
@@ -383,17 +402,20 @@ function renderCompare(sc) {
     <div class="sat-ends"><span>◀ ${escapeHtml(q.a)}</span><span>${escapeHtml(q.b)} ▶</span></div>
     <input type="range" class="sat" id="sat" min="-4" max="4" step="1" value="${state.sliderIdx}" />
     <div class="sat-anchors"><span>${escapeHtml(q.a)} domina</span><span>equivalem-se</span><span>${escapeHtml(q.b)} domina</span></div>
-    <p class="sat-live" id="satLive">${sliderSentence(state.sliderIdx, escapeHtml(q.a), escapeHtml(q.b))}</p>
+    <p class="sat-live" id="satLive" aria-live="polite">${sliderSentence(state.sliderIdx, escapeHtml(q.a), escapeHtml(q.b))}</p>
     <div class="row space">
       <button class="linklike" id="qback">← Voltar</button>
       <button class="primary" id="qnext">Próxima →</button>
     </div>
     <div class="row" style="justify-content:center"><button class="linklike" id="qall">ver todas as respostas</button></div>`;
 
+  $("sat").setAttribute("aria-label", `Comparação entre ${q.a} e ${q.b}`);
+  setSliderValueText(state.sliderIdx, q.a, q.b);
   $("sat").oninput = (e) => {
     state.sliderIdx = +e.target.value;
     state.sliderTouched = true;
     $("satLive").innerHTML = sliderSentence(state.sliderIdx, escapeHtml(q.a), escapeHtml(q.b));
+    setSliderValueText(state.sliderIdx, q.a, q.b);
   };
   $("qnext").onclick = () => saveAnswer({ v: sliderIndexToValue(state.sliderIdx) });
   $("qback").onclick = () => {
@@ -616,6 +638,7 @@ function renderResult(sc) {
     state.sliderIdx = 0;
     state.sliderTouched = false;
     state.pendingNudge = null;
+    state.correction = null;
     state.phase = "ask";
     state.result = null; render();
   };

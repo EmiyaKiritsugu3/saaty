@@ -1,7 +1,7 @@
 :root{
   --bg:#f4f6fb; --card:#fff; --ink:#1e293b; --muted:#64748b;
   --primary:#2563eb; --primary-d:#1d4ed8; --ok:#16a34a; --ok-bg:#dcfce7;
-  --warn-bg:#fef3c7; --warn:#b45309; --bad:#dc2626; --bad-bg:#fee2e2;
+  --bad:#dc2626; --bad-bg:#fee2e2;
   --line:#e2e8f0;
 }
 *{box-sizing:border-box}
@@ -33,14 +33,14 @@ label.field{display:block;font-weight:600;margin:10px 0 2px}
 .item-row button{flex:0 0 auto}
 
 .row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
-.row.end{justify-content:flex-end}
 .row.space{justify-content:space-between}
 button{padding:11px 18px;border-radius:10px;border:1px solid var(--line);background:#f8fafc;cursor:pointer;font-weight:600;font-size:.98rem}
 button.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
 button.primary:hover{background:var(--primary-d)}
 button.ghost{background:#fff}
 button.linklike{background:none;border:none;color:var(--primary);padding:6px 4px;font-weight:600}
-button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+#screen:focus{outline:none}
 .hint{color:var(--muted);font-size:.9rem}
 .count-note{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 12px;margin-top:12px;font-size:.93rem}
 
@@ -75,8 +75,8 @@ input[type=range].sat{width:100%;accent-color:var(--primary);height:40px;cursor:
 .coherence.bad{background:#fffbeb;border:1px solid #fcd34d}
 details.tech{margin-top:16px;font-size:.88rem;color:#334155}
 details.tech summary{cursor:pointer;font-weight:700}
-table.matrix,table.prio{border-collapse:collapse;margin:8px 0;width:100%}
-table.matrix th,table.matrix td,table.prio th,table.prio td{border:1px solid var(--line);padding:6px 8px;font-size:.82rem;text-align:center}
+table.matrix{border-collapse:collapse;margin:8px 0;width:100%}
+table.matrix th,table.matrix td{border:1px solid var(--line);padding:6px 8px;font-size:.82rem;text-align:center}
 table.matrix th{background:#f1f5f9}
 code{background:#f1f5f9;padding:1px 6px;border-radius:6px}
 footer{color:var(--muted);font-size:.85rem;padding:6px 0 30px;text-align:center}
