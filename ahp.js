@@ -192,6 +192,7 @@ function setStepper() {
 }
 
 function render() {
+  persistState();
   setStepper();
   const sc = $("screen");
   if (state.step === 1) renderGoal(sc);
@@ -520,8 +521,7 @@ function renderOverview(sc) {
 }
 
 // Passo 5
-function finishAndShowResult() {
-  state.correction = null;
+function computeResult() {
   const rc = calcAHP(state.critMatrix);
   const perCrit = {};
   state.criteria.forEach(c => { perCrit[c] = calcAHP(state.altMatrices[c]); });
@@ -530,8 +530,76 @@ function finishAndShowResult() {
   const ranking = state.alternatives.map((a, i) => ({ alt: a, score: global[i] }))
     .sort((x, y) => y.score - x.score);
   state.result = { rc, perCrit, global, ranking };
+}
+
+function finishAndShowResult() {
+  state.correction = null;
+  computeResult();
   state.step = 5;
   render();
+}
+
+// ---------- Persistência local (progresso sobrevive ao reload) ----------
+const STORAGE_KEY = "saaty.estado.v1";
+
+function persistState() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const { step, goal, criteria, alternatives, critMatrix, altMatrices, answers, qIndex, queueDims, phase } = state;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      step, goal, criteria, alternatives, critMatrix, altMatrices, answers, qIndex, queueDims, phase,
+    }));
+  } catch (_) { /* armazenamento indisponível/cota cheia: segue sem persistir */ }
+}
+
+function restoreState() {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    if (!s || typeof s !== "object") return false;
+    const crit = s.criteria, alts = s.alternatives;
+    if (!Array.isArray(crit) || !Array.isArray(alts)) return false;
+    if (crit.length < 2 || crit.length > 5 || alts.length < 2 || alts.length > 5) return false;
+    if (!crit.every(c => typeof c === "string") || !alts.every(a => typeof a === "string")) return false;
+    const n = crit.length, m = alts.length;
+    const square = (M, k) => Array.isArray(M) && M.length === k &&
+      M.every(r => Array.isArray(r) && r.length === k &&
+        r.every(v => typeof v === "number" && Number.isFinite(v) && v > 0));
+    if (!square(s.critMatrix, n)) return false;
+    const altMatrices = {};
+    for (const c of crit) {
+      if (!s.altMatrices || !square(s.altMatrices[c], m)) return false;
+      altMatrices[c] = s.altMatrices[c];
+    }
+    const questions = buildQuestionQueue(crit, alts);
+    const answers = Array.isArray(s.answers) && s.answers.length === questions.length &&
+      s.answers.every(a => a === null || (a && typeof a.v === "number" && Number.isFinite(a.v) && a.v > 0))
+      ? s.answers : questions.map(() => null);
+    const step = Number.isInteger(s.step) && s.step >= 1 && s.step <= 5 ? s.step : 1;
+    const qIndex = Number.isInteger(s.qIndex) && s.qIndex >= 0 && s.qIndex < questions.length ? s.qIndex : 0;
+    Object.assign(state, {
+      goal: String(s.goal || ""),
+      criteria: crit.slice(),
+      alternatives: alts.slice(),
+      critMatrix: s.critMatrix,
+      altMatrices,
+      questions,
+      answers,
+      step,
+      qIndex,
+      queueDims: { nCrit: n, nAlt: m },
+      phase: s.phase === "overview" ? "overview" : "ask",
+      correction: null,
+      pendingNudge: null,
+      sliderIdx: 0,
+      sliderTouched: false,
+      result: null,
+    });
+    if (state.step === 5) computeResult();
+    return true;
+  } catch (_) { return false; }
 }
 
 function groupQuestionIndex(type, cj) {
@@ -640,7 +708,9 @@ function renderResult(sc) {
     state.pendingNudge = null;
     state.correction = null;
     state.phase = "ask";
-    state.result = null; render();
+    state.result = null;
+    try { if (typeof localStorage !== "undefined") localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+    render();
   };
 
   // Detalhe técnico (opcional)
@@ -690,7 +760,10 @@ function loadExample() {
   finishAndShowResult();
 }
 
-if (typeof document !== "undefined") render();
+if (typeof document !== "undefined") {
+  restoreState();
+  render();
+}
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
