@@ -422,8 +422,8 @@ function renderCompare(sc) {
   $("qback").onclick = () => {
     state.sliderTouched = false;
     if (state.correction) {
-      if (state.correction.pos === 0) { // sai do modo correção, resultado atual continua válido
-        state.correction = null; state.step = 5; render(); return;
+      if (state.correction.pos === 0) { // sai do modo correção: recalcula com o que já foi editado
+        state.correction = null; computeResult(); state.step = 5; render(); return;
       }
       state.correction.pos -= 1;
       state.qIndex = state.correction.queue[state.correction.pos];
@@ -564,32 +564,28 @@ function restoreState() {
     if (crit.length < 2 || crit.length > 5 || alts.length < 2 || alts.length > 5) return false;
     if (!crit.every(c => typeof c === "string") || !alts.every(a => typeof a === "string")) return false;
     const n = crit.length, m = alts.length;
+    const step = Number.isInteger(s.step) && s.step >= 1 && s.step <= 5 ? s.step : 1;
     const square = (M, k) => Array.isArray(M) && M.length === k &&
       M.every(r => Array.isArray(r) && r.length === k &&
         r.every(v => typeof v === "number" && Number.isFinite(v) && v > 0));
-    if (!square(s.critMatrix, n)) return false;
-    const altMatrices = {};
-    for (const c of crit) {
-      if (!s.altMatrices || !square(s.altMatrices[c], m)) return false;
-      altMatrices[c] = s.altMatrices[c];
-    }
+    const hasMatrices = square(s.critMatrix, n) &&
+      crit.every(c => s.altMatrices && square(s.altMatrices[c], m));
+    // Rascunho (steps 1-3) ainda não tem matrizes: preserva goal/listas e recria matrizes vazias.
+    if (!hasMatrices && step > 3) return false;
     const questions = buildQuestionQueue(crit, alts);
-    const answers = Array.isArray(s.answers) && s.answers.length === questions.length &&
-      s.answers.every(a => a === null || (a && typeof a.v === "number" && Number.isFinite(a.v) && a.v > 0))
-      ? s.answers : questions.map(() => null);
-    const step = Number.isInteger(s.step) && s.step >= 1 && s.step <= 5 ? s.step : 1;
+    const answersOk = Array.isArray(s.answers) && s.answers.length === questions.length &&
+      s.answers.every(a => a === null || (a && typeof a.v === "number" && Number.isFinite(a.v) && a.v > 0));
+    const answers = hasMatrices && answersOk ? s.answers : questions.map(() => null);
     const qIndex = Number.isInteger(s.qIndex) && s.qIndex >= 0 && s.qIndex < questions.length ? s.qIndex : 0;
     Object.assign(state, {
       goal: String(s.goal || ""),
       criteria: crit.slice(),
       alternatives: alts.slice(),
-      critMatrix: s.critMatrix,
-      altMatrices,
       questions,
       answers,
       step,
       qIndex,
-      queueDims: { nCrit: n, nAlt: m },
+      queueDims: hasMatrices ? { nCrit: n, nAlt: m } : null,
       phase: s.phase === "overview" ? "overview" : "ask",
       correction: null,
       pendingNudge: null,
@@ -597,6 +593,12 @@ function restoreState() {
       sliderTouched: false,
       result: null,
     });
+    ensureMatrices();
+    if (hasMatrices) {
+      state.critMatrix = s.critMatrix;
+      state.altMatrices = {};
+      for (const c of crit) state.altMatrices[c] = s.altMatrices[c];
+    }
     if (state.step === 5) computeResult();
     return true;
   } catch (_) { return false; }
