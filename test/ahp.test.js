@@ -37,6 +37,21 @@ test("buildQuestionQueue gera uma pergunta por par", () => {
   assert.equal(qs.filter(q => q.type === "alt").length, 12);
 });
 
+test("buildQuestionQueue contem cada par exatamente uma vez", () => {
+  const crit = AHP.EXAMPLE.criteria, alts = AHP.EXAMPLE.alternatives;
+  const qs = AHP.buildQuestionQueue(crit, alts);
+  const keys = qs.map(q => `${q.type}:${q.cj ?? -1}:${Math.min(q.i, q.j)}:${Math.max(q.i, q.j)}`);
+  assert.equal(new Set(keys).size, keys.length);
+  const esperado = new Set();
+  for (let i = 0; i < crit.length; i++)
+    for (let j = i + 1; j < crit.length; j++) esperado.add(`criteria:-1:${i}:${j}`);
+  crit.forEach((_, cj) => {
+    for (let i = 0; i < alts.length; i++)
+      for (let j = i + 1; j < alts.length; j++) esperado.add(`alt:${cj}:${i}:${j}`);
+  });
+  assert.deepEqual(new Set(keys), esperado);
+});
+
 test("findCycle detecta trio intransitivo", () => {
   assert.deepEqual(AHP.findCycle([[1, 3, 1 / 3], [1 / 3, 1, 3], [3, 1 / 3, 1]]), [0, 1, 2]);
   assert.equal(AHP.findCycle([[1, 1, 1], [1, 1, 1], [1, 1, 1]]), null);
@@ -49,10 +64,21 @@ test("sliderIndexToValue cobre toda a escala -4..4", () => {
   obtido.forEach((v, i) => assert.ok(Math.abs(v - esperado[i]) < 1e-12, `indice ${i - 4}: ${v}`));
 });
 
-test("describeAnswer nunca produz undefined para valores Saaty pares", () => {
-  for (const v of [2, 4, 6, 8, 1 / 2, 1 / 4, 1 / 6, 1 / 8]) {
-    const frase = AHP.describeAnswer({ a: "X", b: "Y" }, { v });
-    assert.ok(!frase.includes("undefined"), `v=${v}: ${frase}`);
+test("describeAnswer descreve valores pares com a palavra e o vencedor certos", () => {
+  const esperado = [
+    [2, "X um pouco mais importante que Y"],
+    [4, "X bem mais importante que Y"],
+    [6, "X muito mais importante que Y"],
+    [8, "X extremamente mais importante que Y"],
+    [1 / 2, "Y um pouco mais importante que X"],
+    [1 / 4, "Y bem mais importante que X"],
+    [1 / 6, "Y muito mais importante que X"],
+    [1 / 8, "Y extremamente mais importante que X"],
+  ];
+  for (const [v, frase] of esperado) {
+    const obtido = AHP.describeAnswer({ a: "X", b: "Y" }, { v });
+    assert.ok(!obtido.includes("undefined"), `v=${v}: ${obtido}`);
+    assert.equal(obtido, frase, `v=${v}`);
   }
 });
 

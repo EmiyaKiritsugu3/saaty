@@ -13,12 +13,12 @@ O assistente guia a decisão em **5 etapas**:
 1. **Decisão** — escreva com suas palavras o que quer decidir (Enter também avança).
 2. **Critérios** — liste de 2 a 5 pontos que importam.
 3. **Opções** — liste de 2 a 5 alternativas.
-4. **Comparar** — responda uma perguntinha por vez, arrastando um slider (“para onde pesa mais?”), com frase-resumo ao vivo e leitura por leitor de tela. Se uma resposta se contradizer com as anteriores, o app avisa **na hora** e mostra o trio intransitivo. Dá para voltar e editar qualquer resposta em “ver todas as respostas”.
-5. **Resultado** — vencedor em destaque, gráfico, o porquê (“Segurança foi o que mais pesou: 46%”) e, se houver inconsistência, o ponto exato com botões **“Rever …”** e **“Corrigir todos de uma vez”**. O modo correção leva só às perguntas problemáticas e volta ao resultado recalculado sozinho.
+4. **Comparar** — responda uma perguntinha por vez, arrastando um slider (“para onde pesa mais?”), com frase-resumo ao vivo e leitura por leitor de tela. Se uma resposta formar um trio intransitivo (X > Y, Y > Z, Z > X), o app avisa **na hora** e mostra a contradição; outros tipos de inconsistência (pesos exagerados) só aparecem no resultado. Dá para voltar e editar qualquer resposta em “ver todas as respostas”.
+5. **Resultado** — vencedor em destaque, gráfico, o porquê (“Segurança foi o que mais pesou: 46%”) e, se houver inconsistência, o ponto exato com botões como **“Rever …”** / **“Suavizar …”** e **“Corrigir os N pontos de uma vez”**. O modo correção leva só às perguntas problemáticas e volta ao resultado recalculado sozinho.
 
 Detalhes matemáticos (matrizes, λ<sub>máx</sub>, CR) ficam escondidos em “🔬 Ver os cálculos”.
 
-O progresso fica salvo no navegador (`localStorage`): recarregar a página retoma exatamente onde você estava. “↺ Nova decisão” limpa o progresso.
+O progresso fica salvo no navegador (`localStorage`): recarregar a página retoma o passo, os textos digitados, as respostas confirmadas, a posição atual do slider e até o modo correção. “↺ Nova decisão” limpa o progresso.
 
 ## Como executar
 Qualquer uma das opções (é só frontend):

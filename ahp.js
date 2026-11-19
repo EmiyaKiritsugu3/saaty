@@ -63,7 +63,8 @@ function setSliderValueText(idx, a, b) {
     el.setAttribute("aria-valuetext", `${a} e ${b} têm o mesmo peso`);
     return;
   }
-  const mag = Math.abs(sliderIndexToValue(idx));
+  // Índice positivo aponta para o recíproco (ex.: 1/3); inverter para falar a magnitude.
+  const mag = idx < 0 ? Math.abs(sliderIndexToValue(idx)) : 1 / sliderIndexToValue(idx);
   const winner = idx < 0 ? a : b;
   const loser = idx < 0 ? b : a;
   el.setAttribute("aria-valuetext", `${winner} pesa ${MAG_WORD[mag]} que ${loser}`);
@@ -223,7 +224,8 @@ function renderGoal(sc) {
     state.step = 2;
     render();
   };
-  $("goal").onkeydown = (e) => { if (e.key === "Enter") $("next1").click(); };
+  $("goal").oninput = (e) => { state.goal = e.target.value; persistState(); };
+  $("goal").onkeydown = (e) => { if (e.isComposing) return; if (e.key === "Enter") $("next1").click(); };
   $("exBtn").onclick = () => { loadExample(); };
 }
 
@@ -259,7 +261,7 @@ function renderList(sc, kind) {
       box.appendChild(row);
     });
     box.querySelectorAll("input").forEach(inp => {
-      inp.oninput = () => { items[+inp.dataset.i] = inp.value; updateCount(); };
+      inp.oninput = () => { items[+inp.dataset.i] = inp.value; updateCount(); persistState(); };
     });
     box.querySelectorAll("[data-del]").forEach(b => {
       b.onclick = () => { syncItems(); items.splice(+b.dataset.del, 1); render(); };
@@ -543,18 +545,20 @@ function finishAndShowResult() {
 const STORAGE_KEY = "saaty.estado.v1";
 
 function persistState() {
-  if (typeof localStorage === "undefined") return;
   try {
-    const { step, goal, criteria, alternatives, critMatrix, altMatrices, answers, qIndex, queueDims, phase } = state;
+    if (typeof localStorage === "undefined") return;
+    const { step, goal, criteria, alternatives, critMatrix, altMatrices, answers, qIndex, queueDims,
+      phase, correction, sliderIdx, sliderTouched } = state;
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      step, goal, criteria, alternatives, critMatrix, altMatrices, answers, qIndex, queueDims, phase,
+      step, goal, criteria, alternatives, critMatrix, altMatrices, answers, qIndex, queueDims,
+      phase, correction, sliderIdx, sliderTouched,
     }));
-  } catch (_) { /* armazenamento indisponível/cota cheia: segue sem persistir */ }
+  } catch (_) { /* armazenamento bloqueado/cota cheia: segue sem persistir */ }
 }
 
 function restoreState() {
-  if (typeof localStorage === "undefined") return false;
   try {
+    if (typeof localStorage === "undefined") return false;
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
     const s = JSON.parse(raw);
@@ -576,7 +580,14 @@ function restoreState() {
     const answersOk = Array.isArray(s.answers) && s.answers.length === questions.length &&
       s.answers.every(a => a === null || (a && typeof a.v === "number" && Number.isFinite(a.v) && a.v > 0));
     const answers = hasMatrices && answersOk ? s.answers : questions.map(() => null);
-    const qIndex = Number.isInteger(s.qIndex) && s.qIndex >= 0 && s.qIndex < questions.length ? s.qIndex : 0;
+    const rawCorr = s.correction;
+    const correction = step === 4 && rawCorr && Array.isArray(rawCorr.queue) && rawCorr.queue.length > 0 &&
+      rawCorr.queue.every(i => Number.isInteger(i) && i >= 0 && i < questions.length) &&
+      Number.isInteger(rawCorr.pos) && rawCorr.pos >= 0 && rawCorr.pos < rawCorr.queue.length
+      ? { queue: rawCorr.queue.slice(), pos: rawCorr.pos } : null;
+    const qIndex = correction ? correction.queue[correction.pos]
+      : (Number.isInteger(s.qIndex) && s.qIndex >= 0 && s.qIndex < questions.length ? s.qIndex : 0);
+    const sliderIdx = Number.isInteger(s.sliderIdx) && s.sliderIdx >= -4 && s.sliderIdx <= 4 ? s.sliderIdx : 0;
     Object.assign(state, {
       goal: String(s.goal || ""),
       criteria: crit.slice(),
@@ -587,10 +598,10 @@ function restoreState() {
       qIndex,
       queueDims: hasMatrices ? { nCrit: n, nAlt: m } : null,
       phase: s.phase === "overview" ? "overview" : "ask",
-      correction: null,
+      correction,
       pendingNudge: null,
-      sliderIdx: 0,
-      sliderTouched: false,
+      sliderIdx,
+      sliderTouched: s.sliderTouched === true,
       result: null,
     });
     ensureMatrices();
@@ -711,8 +722,9 @@ function renderResult(sc) {
     state.correction = null;
     state.phase = "ask";
     state.result = null;
-    try { if (typeof localStorage !== "undefined") localStorage.removeItem(STORAGE_KEY); } catch (_) {}
     render();
+    // render() persiste o estado limpo; remover a chave depois evita que ele a recrie.
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
   };
 
   // Detalhe técnico (opcional)

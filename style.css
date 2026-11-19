@@ -41,6 +41,7 @@ button.ghost{background:#fff}
 button.linklike{background:none;border:none;color:var(--primary);padding:6px 4px;font-weight:600}
 button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
 #screen:focus{outline:none}
+#screen:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .hint{color:var(--muted);font-size:.9rem}
 .count-note{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 12px;margin-top:12px;font-size:.93rem}
 

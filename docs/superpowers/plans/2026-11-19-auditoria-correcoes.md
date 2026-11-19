@@ -84,7 +84,7 @@ git commit -m "test: adiciona node:test e sincroniza exemplo com exemplo.json"
 
 - [ ] **Step 1: Adicionar em `test/ahp.test.js` casos para `describeAnswer({a:"X",b:"Y"},{v})` com `v ∈ {2,4,1/2,1/4}` (nenhum resultado contém "undefined") e `v ∈ {3,9,1/3,1/9}` (mantêm `MAG_WORD`).**
 - [ ] **Step 2: Rodar `npm test`; esperado FAIL nos casos pares.**
-- [ ] **Step 3: Implementar `describeAnswer`: `idx = valueToSliderIndex(ans.v)`; se `idx === 0`, empate; caso contrário `mag = Math.abs(sliderIndexToValue(idx))`, `winner = idx < 0 ? q.a : q.b`, `loser` invertido, e usar `MAG_WORD[mag]`.**
+- [ ] **Step 3: Implementar `describeAnswer`: `idx = valueToSliderIndex(ans.v)`; se `idx === 0`, empate; caso contrário `mag = idx < 0 ? Math.abs(sliderIndexToValue(idx)) : 1 / sliderIndexToValue(idx)` (índice positivo aponta ao recíproco e precisa ser invertido), `winner = idx < 0 ? q.a : q.b`, `loser` invertido, e usar `MAG_WORD[mag]`.**
 - [ ] **Step 4: Rodar `npm test`; esperado PASS.**
 - [ ] **Step 5: Commit**
 
