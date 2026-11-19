@@ -153,7 +153,9 @@ function describeAnswer(q, ans) {
   if (!ans) return "ainda não respondida";
   const idx = valueToSliderIndex(ans.v);
   if (idx === 0) return `${q.a} e ${q.b} empatados`;
-  const mag = idx < 0 ? ans.v : 1 / ans.v;
+  // Usa a magnitude da posição do slider, não o valor bruto: valores pares de
+  // Saaty (2,4,6,8) devem cair na palavra da magnitude ímpar mais próxima.
+  const mag = idx < 0 ? Math.abs(sliderIndexToValue(idx)) : 1 / sliderIndexToValue(idx);
   const winner = idx < 0 ? q.a : q.b;
   const loser = idx < 0 ? q.b : q.a;
   return `${winner} ${MAG_WORD[Math.round(mag)]} importante que ${loser}`;

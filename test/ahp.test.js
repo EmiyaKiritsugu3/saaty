@@ -49,6 +49,21 @@ test("sliderIndexToValue cobre toda a escala -4..4", () => {
   obtido.forEach((v, i) => assert.ok(Math.abs(v - esperado[i]) < 1e-12, `indice ${i - 4}: ${v}`));
 });
 
+test("describeAnswer nunca produz undefined para valores Saaty pares", () => {
+  for (const v of [2, 4, 6, 8, 1 / 2, 1 / 4, 1 / 6, 1 / 8]) {
+    const frase = AHP.describeAnswer({ a: "X", b: "Y" }, { v });
+    assert.ok(!frase.includes("undefined"), `v=${v}: ${frase}`);
+  }
+});
+
+test("describeAnswer preserva as palavras para valores impares", () => {
+  const impares = [[3, "um pouco mais"], [5, "bem mais"], [7, "muito mais"], [9, "extremamente mais"]];
+  for (const [v, palavra] of impares) {
+    assert.ok(AHP.describeAnswer({ a: "X", b: "Y" }, { v }).includes(palavra));
+    assert.ok(AHP.describeAnswer({ a: "X", b: "Y" }, { v: 1 / v }).includes(palavra));
+  }
+});
+
 test("EXAMPLE espelha exemplo.json", () => {
   const json = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "exemplo.json"), "utf8"));
   assert.equal(AHP.EXAMPLE.goal, json.objetivo);
