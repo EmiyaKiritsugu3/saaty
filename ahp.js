@@ -632,11 +632,24 @@ function renderResult(sc) {
       ` (CR=${(perCrit[c].CR * 100).toFixed(2).replace(".", ",")}%)</p>` + mTable(state.alternatives, state.altMatrices[c])).join("");
 }
 
-// Exemplo pronto
+// Exemplo pronto — único ponto de verdade (testado contra exemplo.json).
+const EXAMPLE = {
+  goal: "Escolher o melhor carro",
+  criteria: ["Custo", "Conforto", "Economia", "Segurança"],
+  alternatives: ["Carro A", "Carro B", "Carro C"],
+  critMatrix: [[1, 1 / 3, 1 / 2, 1 / 4], [3, 1, 2, 1 / 2], [2, 1 / 2, 1, 1 / 3], [4, 2, 3, 1]],
+  altMatrices: {
+    "Custo": [[1, 2, 4], [1 / 2, 1, 2], [1 / 4, 1 / 2, 1]],
+    "Conforto": [[1, 1 / 3, 1 / 2], [3, 1, 2], [2, 1 / 2, 1]],
+    "Economia": [[1, 1, 1 / 2], [1, 1, 1 / 3], [2, 3, 1]],
+    "Segurança": [[1, 1 / 2, 1 / 4], [2, 1, 1 / 2], [4, 2, 1]],
+  },
+};
+
 function loadExample() {
-  state.goal = "Escolher o melhor carro";
-  state.criteria = ["Custo", "Conforto", "Economia", "Segurança"];
-  state.alternatives = ["Carro A", "Carro B", "Carro C"];
+  state.goal = EXAMPLE.goal;
+  state.criteria = EXAMPLE.criteria.slice();
+  state.alternatives = EXAMPLE.alternatives.slice();
   state.questions = [];
   state.answers = [];
   state.queueDims = null;
@@ -646,14 +659,17 @@ function loadExample() {
   state.pendingNudge = null;
   state.phase = "ask";
   ensureMatrices();
-  state.critMatrix = [[1, 1/3, 1/2, 1/4], [3, 1, 2, 1/2], [2, 1/2, 1, 1/3], [4, 2, 3, 1]];
-  state.altMatrices = {
-    "Custo": [[1, 2, 4], [1/2, 1, 2], [1/4, 1/2, 1]],
-    "Conforto": [[1, 1/3, 1/2], [3, 1, 2], [2, 1/2, 1]],
-    "Economia": [[1, 1, 1/2], [1, 1, 1/3], [2, 3, 1]],
-    "Segurança": [[1, 1/2, 1/4], [2, 1, 1/2], [4, 2, 1]],
-  };
+  state.critMatrix = EXAMPLE.critMatrix.map(r => r.slice());
+  state.altMatrices = {};
+  state.criteria.forEach(c => { state.altMatrices[c] = EXAMPLE.altMatrices[c].map(r => r.slice()); });
   finishAndShowResult();
 }
 
 if (typeof document !== "undefined") render();
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    calcAHP, RI, sliderIndexToValue, valueToSliderIndex, describeAnswer,
+    questionCount, buildQuestionQueue, findCycle, findWorstOffender, EXAMPLE,
+  };
+}
