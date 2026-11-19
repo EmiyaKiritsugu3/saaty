@@ -90,6 +90,30 @@ test("describeAnswer preserva as palavras para valores impares", () => {
   }
 });
 
+test("magnitudeParts resolve magnitude e vencedor para todo indice", () => {
+  assert.deepEqual(AHP.magnitudeParts(0, "A", "B"), { tie: true });
+  assert.deepEqual(AHP.magnitudeParts(-1, "A", "B"), { tie: false, mag: 3, winner: "A", loser: "B" });
+  assert.deepEqual(AHP.magnitudeParts(1, "A", "B"), { tie: false, mag: 3, winner: "B", loser: "A" });
+  assert.deepEqual(AHP.magnitudeParts(-4, "A", "B"), { tie: false, mag: 9, winner: "A", loser: "B" });
+  assert.deepEqual(AHP.magnitudeParts(4, "A", "B"), { tie: false, mag: 9, winner: "B", loser: "A" });
+});
+
+test("restoreState rejeita storage parcialmente corrompido", () => {
+  const payload = {
+    step: 5, goal: "x", criteria: ["A", "B"], alternatives: ["X", "Y"],
+    critMatrix: [[1, 1], [1, 1]],
+    altMatrices: { A: [[1, 1], [1, 1]], B: [[1, 1], [1, 1]] },
+    answers: [null], // tamanho errado: estado misto
+    qIndex: 0, queueDims: { nCrit: 2, nAlt: 2 }, phase: "ask",
+  };
+  global.localStorage = { getItem: () => JSON.stringify(payload), setItem: () => {} };
+  try {
+    assert.equal(AHP.restoreState(), false);
+  } finally {
+    delete global.localStorage;
+  }
+});
+
 test("EXAMPLE espelha exemplo.json", () => {
   const json = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "exemplo.json"), "utf8"));
   assert.equal(AHP.EXAMPLE.goal, json.objetivo);

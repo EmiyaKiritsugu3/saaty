@@ -47,27 +47,35 @@ function valueToSliderIndex(v) {
 
 const MAG_WORD = { 3: "um pouco mais", 5: "bem mais", 7: "muito mais", 9: "extremamente mais" };
 
+// Fonte única de verdade para frase, aria-valuetext e descrição de resposta.
+// Índice negativo = `a` vence; positivo = recíproco, `b` vence.
+function magnitudeParts(idx, a, b) {
+  if (idx === 0) return { tie: true };
+  const value = sliderIndexToValue(idx);
+  return {
+    tie: false,
+    mag: idx < 0 ? value : 1 / value,
+    winner: idx < 0 ? a : b,
+    loser: idx < 0 ? b : a,
+  };
+}
+
 function sliderSentence(idx, a, b) {
-  if (idx === 0) return `${a} e ${b} têm o <strong>mesmo peso</strong> para você.`;
-  const mag = idx < 0 ? sliderIndexToValue(idx) : 1 / sliderIndexToValue(idx);
-  const winner = idx < 0 ? a : b;
-  const loser = idx < 0 ? b : a;
-  return `${winner} pesa <strong>${MAG_WORD[mag]}</strong> que ${loser}.`;
+  const p = magnitudeParts(idx, a, b);
+  if (p.tie) return `${a} e ${b} têm o <strong>mesmo peso</strong> para você.`;
+  return `${p.winner} pesa <strong>${MAG_WORD[p.mag]}</strong> que ${p.loser}.`;
 }
 
 // Texto falado pelo leitor de tela para a posição atual do slider.
 function setSliderValueText(idx, a, b) {
   const el = $("sat");
   if (!el) return;
-  if (idx === 0) {
+  const p = magnitudeParts(idx, a, b);
+  if (p.tie) {
     el.setAttribute("aria-valuetext", `${a} e ${b} têm o mesmo peso`);
     return;
   }
-  // Índice positivo aponta para o recíproco (ex.: 1/3); inverter para falar a magnitude.
-  const mag = idx < 0 ? Math.abs(sliderIndexToValue(idx)) : 1 / sliderIndexToValue(idx);
-  const winner = idx < 0 ? a : b;
-  const loser = idx < 0 ? b : a;
-  el.setAttribute("aria-valuetext", `${winner} pesa ${MAG_WORD[mag]} que ${loser}`);
+  el.setAttribute("aria-valuetext", `${p.winner} pesa ${MAG_WORD[p.mag]} que ${p.loser}`);
 }
 
 function questionCount(nCrit, nAlt) {
@@ -168,13 +176,11 @@ function findCycle(M) {
 function describeAnswer(q, ans) {
   if (!ans) return "ainda não respondida";
   const idx = valueToSliderIndex(ans.v);
-  if (idx === 0) return `${q.a} e ${q.b} empatados`;
-  // Usa a magnitude da posição do slider, não o valor bruto: valores pares de
-  // Saaty (2,4,6,8) devem cair na palavra da magnitude ímpar mais próxima.
-  const mag = idx < 0 ? Math.abs(sliderIndexToValue(idx)) : 1 / sliderIndexToValue(idx);
-  const winner = idx < 0 ? q.a : q.b;
-  const loser = idx < 0 ? q.b : q.a;
-  return `${winner} ${MAG_WORD[Math.round(mag)]} importante que ${loser}`;
+  const p = magnitudeParts(idx, q.a, q.b);
+  if (p.tie) return `${q.a} e ${q.b} empatados`;
+  // magnitudeParts usa a posição do slider, não o valor bruto: valores pares de
+  // Saaty (2,4,6,8) caem na palavra da magnitude ímpar mais próxima.
+  return `${p.winner} ${MAG_WORD[p.mag]} importante que ${p.loser}`;
 }
 
 // ---------- UI (navegador) ----------
@@ -193,7 +199,6 @@ function setStepper() {
 }
 
 function render() {
-  persistState();
   setStepper();
   const sc = $("screen");
   if (state.step === 1) renderGoal(sc);
@@ -204,6 +209,9 @@ function render() {
   // Cada render troca o innerHTML; devolver o foco ao painel evita que
   // usuários de teclado voltem ao topo da página a cada pergunta.
   if (sc && typeof sc.focus === "function") sc.focus({ preventScroll: true });
+  // Persistir depois do dispatch: renderCompare pode ajustar sliderIdx a partir
+  // da resposta anterior, e o storage deve refletir o que está na tela.
+  persistState();
 }
 
 // Passo 1
@@ -290,6 +298,9 @@ function renderList(sc, kind) {
   $("add").onclick = () => {
     if (items.length >= max) return alert(`Máximo de ${max} itens — mais que isso vira uma eternidade de perguntas.`);
     syncItems(); items.push(""); render();
+    const inputs = document.querySelectorAll("#items input");
+    const last = inputs[inputs.length - 1];
+    if (last) last.focus();
   };
   $("rm").onclick = () => {
     if (items.length <= 2) return alert("Mínimo de 2 itens.");
@@ -419,6 +430,7 @@ function renderCompare(sc) {
     state.sliderTouched = true;
     $("satLive").innerHTML = sliderSentence(state.sliderIdx, escapeHtml(q.a), escapeHtml(q.b));
     setSliderValueText(state.sliderIdx, q.a, q.b);
+    persistState();
   };
   $("qnext").onclick = () => saveAnswer({ v: sliderIndexToValue(state.sliderIdx) });
   $("qback").onclick = () => {
@@ -579,6 +591,8 @@ function restoreState() {
     const questions = buildQuestionQueue(crit, alts);
     const answersOk = Array.isArray(s.answers) && s.answers.length === questions.length &&
       s.answers.every(a => a === null || (a && typeof a.v === "number" && Number.isFinite(a.v) && a.v > 0));
+    // Storage parcialmente corrompido não pode virar estado misto (matrizes velhas + respostas zeradas).
+    if (!answersOk && step > 3) return false;
     const answers = hasMatrices && answersOk ? s.answers : questions.map(() => null);
     const rawCorr = s.correction;
     const correction = step === 4 && rawCorr && Array.isArray(rawCorr.queue) && rawCorr.queue.length > 0 &&
@@ -606,9 +620,9 @@ function restoreState() {
     });
     ensureMatrices();
     if (hasMatrices) {
-      state.critMatrix = s.critMatrix;
+      state.critMatrix = s.critMatrix.map(r => r.slice());
       state.altMatrices = {};
-      for (const c of crit) state.altMatrices[c] = s.altMatrices[c];
+      for (const c of crit) state.altMatrices[c] = s.altMatrices[c].map(r => r.slice());
     }
     if (state.step === 5) computeResult();
     return true;
@@ -781,7 +795,7 @@ if (typeof document !== "undefined") {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    calcAHP, RI, sliderIndexToValue, valueToSliderIndex, describeAnswer,
-    questionCount, buildQuestionQueue, findCycle, findWorstOffender, EXAMPLE,
+    calcAHP, RI, sliderIndexToValue, valueToSliderIndex, magnitudeParts, describeAnswer,
+    questionCount, buildQuestionQueue, findCycle, findWorstOffender, restoreState, EXAMPLE,
   };
 }
