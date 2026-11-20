@@ -47,12 +47,35 @@ function valueToSliderIndex(v) {
 
 const MAG_WORD = { 3: "um pouco mais", 5: "bem mais", 7: "muito mais", 9: "extremamente mais" };
 
+// Fonte única de verdade para frase, aria-valuetext e descrição de resposta.
+// Índice negativo = `a` vence; positivo = recíproco, `b` vence.
+function magnitudeParts(idx, a, b) {
+  if (idx === 0) return { tie: true };
+  const value = sliderIndexToValue(idx);
+  return {
+    tie: false,
+    mag: idx < 0 ? value : 1 / value,
+    winner: idx < 0 ? a : b,
+    loser: idx < 0 ? b : a,
+  };
+}
+
 function sliderSentence(idx, a, b) {
-  if (idx === 0) return `${a} e ${b} têm o <strong>mesmo peso</strong> para você.`;
-  const mag = idx < 0 ? sliderIndexToValue(idx) : 1 / sliderIndexToValue(idx);
-  const winner = idx < 0 ? a : b;
-  const loser = idx < 0 ? b : a;
-  return `${winner} pesa <strong>${MAG_WORD[mag]}</strong> que ${loser}.`;
+  const p = magnitudeParts(idx, a, b);
+  if (p.tie) return `${a} e ${b} têm o <strong>mesmo peso</strong> para você.`;
+  return `${p.winner} pesa <strong>${MAG_WORD[p.mag]}</strong> que ${p.loser}.`;
+}
+
+// Texto falado pelo leitor de tela para a posição atual do slider.
+function setSliderValueText(idx, a, b) {
+  const el = $("sat");
+  if (!el) return;
+  const p = magnitudeParts(idx, a, b);
+  if (p.tie) {
+    el.setAttribute("aria-valuetext", `${a} e ${b} têm o mesmo peso`);
+    return;
+  }
+  el.setAttribute("aria-valuetext", `${p.winner} pesa ${MAG_WORD[p.mag]} que ${p.loser}`);
 }
 
 function questionCount(nCrit, nAlt) {
@@ -92,6 +115,7 @@ const state = {
   queueDims: null, // dims {nCrit, nAlt} usadas para construir questions (carimbo anti-obsoleto)
   correction: null, // {queue:[qIdx], pos} — fila só com os pontos problemáticos
   sliderIdx: 0, // posição atual do slider (-4..+4)
+  sliderTouched: false, // usuário moveu o slider desde a última pergunta
   pendingNudge: null, // {groupName, cycleText} — contradição recém-criada
   answers: [], // por pergunta: {v} | null
   result: null,
@@ -152,11 +176,11 @@ function findCycle(M) {
 function describeAnswer(q, ans) {
   if (!ans) return "ainda não respondida";
   const idx = valueToSliderIndex(ans.v);
-  if (idx === 0) return `${q.a} e ${q.b} empatados`;
-  const mag = idx < 0 ? ans.v : 1 / ans.v;
-  const winner = idx < 0 ? q.a : q.b;
-  const loser = idx < 0 ? q.b : q.a;
-  return `${winner} ${MAG_WORD[Math.round(mag)]} importante que ${loser}`;
+  const p = magnitudeParts(idx, q.a, q.b);
+  if (p.tie) return `${q.a} e ${q.b} empatados`;
+  // magnitudeParts usa a posição do slider, não o valor bruto: valores pares de
+  // Saaty (2,4,6,8) caem na palavra da magnitude ímpar mais próxima.
+  return `${p.winner} ${MAG_WORD[p.mag]} importante que ${p.loser}`;
 }
 
 // ---------- UI (navegador) ----------
@@ -177,11 +201,17 @@ function setStepper() {
 function render() {
   setStepper();
   const sc = $("screen");
-  if (state.step === 1) return renderGoal(sc);
-  if (state.step === 2) return renderList(sc, "crit");
-  if (state.step === 3) return renderList(sc, "alt");
-  if (state.step === 4) return renderCompare(sc);
-  return renderResult(sc);
+  if (state.step === 1) renderGoal(sc);
+  else if (state.step === 2) renderList(sc, "crit");
+  else if (state.step === 3) renderList(sc, "alt");
+  else if (state.step === 4) renderCompare(sc);
+  else renderResult(sc);
+  // Cada render troca o innerHTML; devolver o foco ao painel evita que
+  // usuários de teclado voltem ao topo da página a cada pergunta.
+  if (sc && typeof sc.focus === "function") sc.focus({ preventScroll: true });
+  // Persistir depois do dispatch: renderCompare pode ajustar sliderIdx a partir
+  // da resposta anterior, e o storage deve refletir o que está na tela.
+  persistState();
 }
 
 // Passo 1
@@ -202,6 +232,8 @@ function renderGoal(sc) {
     state.step = 2;
     render();
   };
+  $("goal").oninput = (e) => { state.goal = e.target.value; persistState(); };
+  $("goal").onkeydown = (e) => { if (e.isComposing) return; if (e.key === "Enter") $("next1").click(); };
   $("exBtn").onclick = () => { loadExample(); };
 }
 
@@ -237,7 +269,7 @@ function renderList(sc, kind) {
       box.appendChild(row);
     });
     box.querySelectorAll("input").forEach(inp => {
-      inp.oninput = () => { items[+inp.dataset.i] = inp.value; updateCount(); };
+      inp.oninput = () => { items[+inp.dataset.i] = inp.value; updateCount(); persistState(); };
     });
     box.querySelectorAll("[data-del]").forEach(b => {
       b.onclick = () => { syncItems(); items.splice(+b.dataset.del, 1); render(); };
@@ -266,6 +298,9 @@ function renderList(sc, kind) {
   $("add").onclick = () => {
     if (items.length >= max) return alert(`Máximo de ${max} itens — mais que isso vira uma eternidade de perguntas.`);
     syncItems(); items.push(""); render();
+    const inputs = document.querySelectorAll("#items input");
+    const last = inputs[inputs.length - 1];
+    if (last) last.focus();
   };
   $("rm").onclick = () => {
     if (items.length <= 2) return alert("Mínimo de 2 itens.");
@@ -381,24 +416,28 @@ function renderCompare(sc) {
     <div class="sat-ends"><span>◀ ${escapeHtml(q.a)}</span><span>${escapeHtml(q.b)} ▶</span></div>
     <input type="range" class="sat" id="sat" min="-4" max="4" step="1" value="${state.sliderIdx}" />
     <div class="sat-anchors"><span>${escapeHtml(q.a)} domina</span><span>equivalem-se</span><span>${escapeHtml(q.b)} domina</span></div>
-    <p class="sat-live" id="satLive">${sliderSentence(state.sliderIdx, escapeHtml(q.a), escapeHtml(q.b))}</p>
+    <p class="sat-live" id="satLive" aria-live="polite">${sliderSentence(state.sliderIdx, escapeHtml(q.a), escapeHtml(q.b))}</p>
     <div class="row space">
       <button class="linklike" id="qback">← Voltar</button>
       <button class="primary" id="qnext">Próxima →</button>
     </div>
     <div class="row" style="justify-content:center"><button class="linklike" id="qall">ver todas as respostas</button></div>`;
 
+  $("sat").setAttribute("aria-label", `Comparação entre ${q.a} e ${q.b}`);
+  setSliderValueText(state.sliderIdx, q.a, q.b);
   $("sat").oninput = (e) => {
     state.sliderIdx = +e.target.value;
     state.sliderTouched = true;
     $("satLive").innerHTML = sliderSentence(state.sliderIdx, escapeHtml(q.a), escapeHtml(q.b));
+    setSliderValueText(state.sliderIdx, q.a, q.b);
+    persistState();
   };
   $("qnext").onclick = () => saveAnswer({ v: sliderIndexToValue(state.sliderIdx) });
   $("qback").onclick = () => {
     state.sliderTouched = false;
     if (state.correction) {
-      if (state.correction.pos === 0) { // sai do modo correção, resultado atual continua válido
-        state.correction = null; state.step = 5; render(); return;
+      if (state.correction.pos === 0) { // sai do modo correção: recalcula com o que já foi editado
+        state.correction = null; computeResult(); state.step = 5; render(); return;
       }
       state.correction.pos -= 1;
       state.qIndex = state.correction.queue[state.correction.pos];
@@ -496,8 +535,7 @@ function renderOverview(sc) {
 }
 
 // Passo 5
-function finishAndShowResult() {
-  state.correction = null;
+function computeResult() {
   const rc = calcAHP(state.critMatrix);
   const perCrit = {};
   state.criteria.forEach(c => { perCrit[c] = calcAHP(state.altMatrices[c]); });
@@ -506,8 +544,91 @@ function finishAndShowResult() {
   const ranking = state.alternatives.map((a, i) => ({ alt: a, score: global[i] }))
     .sort((x, y) => y.score - x.score);
   state.result = { rc, perCrit, global, ranking };
+}
+
+function finishAndShowResult() {
+  state.correction = null;
+  computeResult();
   state.step = 5;
   render();
+}
+
+// ---------- Persistência local (progresso sobrevive ao reload) ----------
+const STORAGE_KEY = "saaty.estado.v1";
+
+function persistState() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const { step, goal, criteria, alternatives, critMatrix, altMatrices, answers, qIndex, queueDims,
+      phase, correction, sliderIdx, sliderTouched } = state;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      step, goal, criteria, alternatives, critMatrix, altMatrices, answers, qIndex, queueDims,
+      phase, correction, sliderIdx, sliderTouched,
+    }));
+  } catch (_) { /* armazenamento bloqueado/cota cheia: segue sem persistir */ }
+}
+
+function restoreState() {
+  try {
+    if (typeof localStorage === "undefined") return false;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    if (!s || typeof s !== "object") return false;
+    const crit = s.criteria, alts = s.alternatives;
+    if (!Array.isArray(crit) || !Array.isArray(alts)) return false;
+    if (crit.length < 2 || crit.length > 5 || alts.length < 2 || alts.length > 5) return false;
+    if (!crit.every(c => typeof c === "string") || !alts.every(a => typeof a === "string")) return false;
+    const n = crit.length, m = alts.length;
+    const step = Number.isInteger(s.step) && s.step >= 1 && s.step <= 5 ? s.step : 1;
+    const square = (M, k) => Array.isArray(M) && M.length === k &&
+      M.every(r => Array.isArray(r) && r.length === k &&
+        r.every(v => typeof v === "number" && Number.isFinite(v) && v > 0));
+    const hasMatrices = square(s.critMatrix, n) &&
+      crit.every(c => s.altMatrices && square(s.altMatrices[c], m));
+    // Rascunho (steps 1-3) ainda não tem matrizes: preserva goal/listas e recria matrizes vazias.
+    if (!hasMatrices && step > 3) return false;
+    const questions = buildQuestionQueue(crit, alts);
+    const answersOk = Array.isArray(s.answers) && s.answers.length === questions.length &&
+      s.answers.every(a => a === null || (a && typeof a.v === "number" && Number.isFinite(a.v) && a.v > 0));
+    // Storage parcialmente corrompido não pode virar estado misto (matrizes velhas + respostas zeradas).
+    if (!answersOk && step > 3) return false;
+    const answers = hasMatrices && answersOk ? s.answers : questions.map(() => null);
+    // Um resultado (step 5) exige todas as respostas; o rascunho (step 4) pode estar parcial.
+    if (step === 5 && answers.some(a => !a)) return false;
+    const rawCorr = s.correction;
+    const correction = step === 4 && rawCorr && Array.isArray(rawCorr.queue) && rawCorr.queue.length > 0 &&
+      rawCorr.queue.every(i => Number.isInteger(i) && i >= 0 && i < questions.length) &&
+      Number.isInteger(rawCorr.pos) && rawCorr.pos >= 0 && rawCorr.pos < rawCorr.queue.length
+      ? { queue: rawCorr.queue.slice(), pos: rawCorr.pos } : null;
+    const qIndex = correction ? correction.queue[correction.pos]
+      : (Number.isInteger(s.qIndex) && s.qIndex >= 0 && s.qIndex < questions.length ? s.qIndex : 0);
+    const sliderIdx = Number.isInteger(s.sliderIdx) && s.sliderIdx >= -4 && s.sliderIdx <= 4 ? s.sliderIdx : 0;
+    Object.assign(state, {
+      goal: String(s.goal || ""),
+      criteria: crit.slice(),
+      alternatives: alts.slice(),
+      questions,
+      answers,
+      step,
+      qIndex,
+      queueDims: hasMatrices ? { nCrit: n, nAlt: m } : null,
+      phase: s.phase === "overview" ? "overview" : "ask",
+      correction,
+      pendingNudge: null,
+      sliderIdx,
+      sliderTouched: s.sliderTouched === true,
+      result: null,
+    });
+    ensureMatrices();
+    if (hasMatrices) {
+      state.critMatrix = s.critMatrix.map(r => r.slice());
+      state.altMatrices = {};
+      for (const c of crit) state.altMatrices[c] = s.altMatrices[c].map(r => r.slice());
+    }
+    if (state.step === 5) computeResult();
+    return true;
+  } catch (_) { return false; }
 }
 
 function groupQuestionIndex(type, cj) {
@@ -614,8 +735,12 @@ function renderResult(sc) {
     state.sliderIdx = 0;
     state.sliderTouched = false;
     state.pendingNudge = null;
+    state.correction = null;
     state.phase = "ask";
-    state.result = null; render();
+    state.result = null;
+    render();
+    // render() persiste o estado limpo; remover a chave depois evita que ele a recrie.
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
   };
 
   // Detalhe técnico (opcional)
@@ -632,11 +757,24 @@ function renderResult(sc) {
       ` (CR=${(perCrit[c].CR * 100).toFixed(2).replace(".", ",")}%)</p>` + mTable(state.alternatives, state.altMatrices[c])).join("");
 }
 
-// Exemplo pronto
+// Exemplo pronto — único ponto de verdade (testado contra exemplo.json).
+const EXAMPLE = {
+  goal: "Escolher o melhor carro",
+  criteria: ["Custo", "Conforto", "Economia", "Segurança"],
+  alternatives: ["Carro A", "Carro B", "Carro C"],
+  critMatrix: [[1, 1 / 3, 1 / 2, 1 / 4], [3, 1, 2, 1 / 2], [2, 1 / 2, 1, 1 / 3], [4, 2, 3, 1]],
+  altMatrices: {
+    "Custo": [[1, 2, 4], [1 / 2, 1, 2], [1 / 4, 1 / 2, 1]],
+    "Conforto": [[1, 1 / 3, 1 / 2], [3, 1, 2], [2, 1 / 2, 1]],
+    "Economia": [[1, 1, 1 / 2], [1, 1, 1 / 3], [2, 3, 1]],
+    "Segurança": [[1, 1 / 2, 1 / 4], [2, 1, 1 / 2], [4, 2, 1]],
+  },
+};
+
 function loadExample() {
-  state.goal = "Escolher o melhor carro";
-  state.criteria = ["Custo", "Conforto", "Economia", "Segurança"];
-  state.alternatives = ["Carro A", "Carro B", "Carro C"];
+  state.goal = EXAMPLE.goal;
+  state.criteria = EXAMPLE.criteria.slice();
+  state.alternatives = EXAMPLE.alternatives.slice();
   state.questions = [];
   state.answers = [];
   state.queueDims = null;
@@ -646,14 +784,20 @@ function loadExample() {
   state.pendingNudge = null;
   state.phase = "ask";
   ensureMatrices();
-  state.critMatrix = [[1, 1/3, 1/2, 1/4], [3, 1, 2, 1/2], [2, 1/2, 1, 1/3], [4, 2, 3, 1]];
-  state.altMatrices = {
-    "Custo": [[1, 2, 4], [1/2, 1, 2], [1/4, 1/2, 1]],
-    "Conforto": [[1, 1/3, 1/2], [3, 1, 2], [2, 1/2, 1]],
-    "Economia": [[1, 1, 1/2], [1, 1, 1/3], [2, 3, 1]],
-    "Segurança": [[1, 1/2, 1/4], [2, 1, 1/2], [4, 2, 1]],
-  };
+  state.critMatrix = EXAMPLE.critMatrix.map(r => r.slice());
+  state.altMatrices = {};
+  state.criteria.forEach(c => { state.altMatrices[c] = EXAMPLE.altMatrices[c].map(r => r.slice()); });
   finishAndShowResult();
 }
 
-if (typeof document !== "undefined") render();
+if (typeof document !== "undefined") {
+  restoreState();
+  render();
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    calcAHP, RI, sliderIndexToValue, valueToSliderIndex, magnitudeParts, describeAnswer,
+    questionCount, buildQuestionQueue, findCycle, findWorstOffender, restoreState, EXAMPLE,
+  };
+}
