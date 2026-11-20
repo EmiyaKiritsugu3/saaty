@@ -594,6 +594,8 @@ function restoreState() {
     // Storage parcialmente corrompido não pode virar estado misto (matrizes velhas + respostas zeradas).
     if (!answersOk && step > 3) return false;
     const answers = hasMatrices && answersOk ? s.answers : questions.map(() => null);
+    // Um resultado (step 5) exige todas as respostas; o rascunho (step 4) pode estar parcial.
+    if (step === 5 && answers.some(a => !a)) return false;
     const rawCorr = s.correction;
     const correction = step === 4 && rawCorr && Array.isArray(rawCorr.queue) && rawCorr.queue.length > 0 &&
       rawCorr.queue.every(i => Number.isInteger(i) && i >= 0 && i < questions.length) &&

@@ -114,6 +114,22 @@ test("restoreState rejeita storage parcialmente corrompido", () => {
   }
 });
 
+test("restoreState rejeita resultado step 5 com respostas incompletas", () => {
+  const payload = {
+    step: 5, goal: "x", criteria: ["A", "B"], alternatives: ["X", "Y"],
+    critMatrix: [[1, 1], [1, 1]],
+    altMatrices: { A: [[1, 1], [1, 1]], B: [[1, 1], [1, 1]] },
+    answers: [{ v: 1 }, { v: 1 }, null], // tamanho certo, mas uma resposta falta
+    qIndex: 0, queueDims: { nCrit: 2, nAlt: 2 }, phase: "ask",
+  };
+  global.localStorage = { getItem: () => JSON.stringify(payload), setItem: () => {} };
+  try {
+    assert.equal(AHP.restoreState(), false);
+  } finally {
+    delete global.localStorage;
+  }
+});
+
 test("EXAMPLE espelha exemplo.json", () => {
   const json = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "exemplo.json"), "utf8"));
   assert.equal(AHP.EXAMPLE.goal, json.objetivo);
