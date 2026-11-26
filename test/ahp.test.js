@@ -130,6 +130,121 @@ test("restoreState rejeita resultado step 5 com respostas incompletas", () => {
   }
 });
 
+test("answerValueForSave preserva valor fora da grade quando o slider nao foi tocado", () => {
+  assert.equal(AHP.answerValueForSave({ v: 2 }, false, -1), 2);
+  assert.equal(AHP.answerValueForSave({ v: 4 }, false, -2), 4);
+  assert.equal(AHP.answerValueForSave({ v: 2 }, true, -1), 3);
+  assert.equal(AHP.answerValueForSave(null, false, 0), 1);
+});
+
+test("answersFromMatrices reconstrói o exemplo e matricesFromAnswers devolve as matrizes originais", () => {
+  const answers = AHP.answersFromMatrices(
+    AHP.EXAMPLE.criteria,
+    AHP.EXAMPLE.alternatives,
+    AHP.EXAMPLE.critMatrix,
+    AHP.EXAMPLE.altMatrices,
+  );
+  assert.equal(answers.length, AHP.questionCount(4, 3));
+  const rebuilt = AHP.matricesFromAnswers(AHP.EXAMPLE.criteria, AHP.EXAMPLE.alternatives, answers);
+  assertMatrixClose(rebuilt.critMatrix, AHP.EXAMPLE.critMatrix);
+  for (const c of AHP.EXAMPLE.criteria) {
+    assertMatrixClose(rebuilt.altMatrices[c], AHP.EXAMPLE.altMatrices[c]);
+  }
+});
+
+test("restoreState restaura resultado do exemplo salvo como respostas", () => {
+  const answers = AHP.answersFromMatrices(
+    AHP.EXAMPLE.criteria,
+    AHP.EXAMPLE.alternatives,
+    AHP.EXAMPLE.critMatrix,
+    AHP.EXAMPLE.altMatrices,
+  );
+  const payload = {
+    step: 5, goal: AHP.EXAMPLE.goal,
+    criteria: AHP.EXAMPLE.criteria, alternatives: AHP.EXAMPLE.alternatives,
+    answers, qIndex: 0, queueDims: { nCrit: 4, nAlt: 3 }, phase: "ask",
+    correction: null, sliderIdx: 0, sliderTouched: false,
+  };
+  global.localStorage = { getItem: () => JSON.stringify(payload), setItem: () => {} };
+  try {
+    assert.equal(AHP.restoreState(), true);
+    assert.equal(AHP.__test.state.step, 5);
+    assert.equal(AHP.__test.state.questions.length, 18);
+    assert.equal(AHP.__test.state.result.ranking[0].alt, "Carro C");
+  } finally {
+    delete global.localStorage;
+  }
+});
+
+test("restoreState preserva respostas depois de renomear criterio", () => {
+  const criteria = ["Custo2", "Conforto", "Economia"];
+  const alternatives = ["A", "B", "C"];
+  const answers = AHP.buildQuestionQueue(criteria, alternatives).map((_, i) => (i < 3 ? { v: 3 } : null));
+  const payload = {
+    step: 3, goal: "Teste", criteria, alternatives, answers,
+    qIndex: 0, queueDims: { nCrit: 3, nAlt: 3 }, phase: "ask",
+    correction: null, sliderIdx: 0, sliderTouched: false,
+  };
+  global.localStorage = { getItem: () => JSON.stringify(payload), setItem: () => {} };
+  try {
+    assert.equal(AHP.restoreState(), true);
+    assert.equal(AHP.__test.state.answers[0].v, 3);
+    assert.equal(AHP.__test.state.answers[3], null);
+    assert.deepEqual(AHP.__test.state.queueDims, { nCrit: 3, nAlt: 3 });
+  } finally {
+    delete global.localStorage;
+  }
+});
+
+test("mudanca estrutural limpa respostas para nao reutilizar julgamentos antigos", () => {
+  const S = AHP.__test.state;
+  const criteria = ["A", "B", "C"];
+  const alternatives = ["X", "Y"];
+  const questions = AHP.buildQuestionQueue(criteria, alternatives);
+  Object.assign(S, {
+    step: 3, goal: "Teste", criteria, alternatives, questions,
+    answers: questions.map((_, i) => (i < 3 ? { v: 9 } : null)),
+    queueDims: { nCrit: 3, nAlt: 2 }, qIndex: 0, correction: null,
+    sliderIdx: 0, sliderTouched: false, pendingNudge: null, phase: "ask", result: null,
+  });
+  AHP.__test.ensureMatrices();
+  AHP.__test.invalidateAnswers();
+  assert.ok(S.answers.every(a => a === null));
+  assert.equal(S.queueDims, null);
+  AHP.__test.ensureMatrices();
+  AHP.__test.startQuestions();
+  AHP.__test.restoreFlow(AHP.__test.snapshotFlow());
+  assert.ok(S.answers.every(a => a === null));
+  assert.equal(S.qIndex, 0);
+});
+
+test("snapshot/restore preserva respostas quando apenas os nomes mudam", () => {
+  const S = AHP.__test.state;
+  const criteria = ["A", "B"];
+  const alternatives = ["X", "Y"];
+  const questions = AHP.buildQuestionQueue(criteria, alternatives);
+  const answers = questions.map((_, i) => ({ v: i + 1 }));
+  Object.assign(S, {
+    step: 3, goal: "Teste", criteria, alternatives, questions, answers,
+    queueDims: { nCrit: 2, nAlt: 2 }, qIndex: 0, correction: null,
+    sliderIdx: 0, sliderTouched: false, pendingNudge: null, phase: "ask", result: null,
+  });
+  AHP.__test.ensureMatrices();
+  questions.forEach((q, i) => {
+    const M = q.type === "criteria" ? S.critMatrix : S.altMatrices[q.crit];
+    M[q.i][q.j] = answers[i].v;
+    M[q.j][q.i] = 1 / answers[i].v;
+  });
+  const snap = AHP.__test.snapshotFlow();
+  S.criteria = ["A2", "B"];
+  AHP.__test.ensureMatrices();
+  AHP.__test.startQuestions();
+  AHP.__test.restoreFlow(snap);
+  assert.equal(S.answers[0].v, 1);
+  assert.equal(S.questions[0].a, "A2");
+  assert.equal(S.qIndex, 0);
+});
+
 test("EXAMPLE espelha exemplo.json", () => {
   const json = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "exemplo.json"), "utf8"));
   assert.equal(AHP.EXAMPLE.goal, json.objetivo);

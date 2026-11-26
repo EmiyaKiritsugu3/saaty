@@ -45,6 +45,12 @@ function valueToSliderIndex(v) {
   return best;
 }
 
+// Confirmar sem mexer no slider mantém o valor original, inclusive valores
+// pares de Saaty que não existem na grade ímpar do controle.
+function answerValueForSave(prev, sliderTouched, sliderIdx) {
+  return prev && !sliderTouched ? prev.v : sliderIndexToValue(sliderIdx);
+}
+
 const MAG_WORD = { 3: "um pouco mais", 5: "bem mais", 7: "muito mais", 9: "extremamente mais" };
 
 // Fonte única de verdade para frase, aria-valuetext e descrição de resposta.
@@ -98,6 +104,29 @@ function buildQuestionQueue(criteria, alternatives) {
 
 function emptyMatrix(n) {
   return Array.from({ length: n }, () => Array(n).fill(1));
+}
+
+// Respostas e matrizes são conversíveis: a persistência guarda só as respostas
+// e reconstrói as matrizes, evitando depender do nome dos critérios como chave.
+function answersFromMatrices(criteria, alternatives, critMatrix, altMatrices) {
+  return buildQuestionQueue(criteria, alternatives).map(q => {
+    const M = q.type === "criteria" ? critMatrix : altMatrices[q.crit];
+    return { v: M[q.i][q.j] };
+  });
+}
+
+function matricesFromAnswers(criteria, alternatives, answers) {
+  const critMatrix = emptyMatrix(criteria.length);
+  const altMatrices = {};
+  criteria.forEach(c => { altMatrices[c] = emptyMatrix(alternatives.length); });
+  buildQuestionQueue(criteria, alternatives).forEach((q, i) => {
+    const ans = answers[i];
+    if (!ans || !Number.isFinite(ans.v) || ans.v <= 0) return;
+    const M = q.type === "criteria" ? critMatrix : altMatrices[q.crit];
+    M[q.i][q.j] = ans.v;
+    M[q.j][q.i] = 1 / ans.v;
+  });
+  return { critMatrix, altMatrices };
 }
 
 const fmtPct = (x) => (x * 100).toFixed(1).replace(".", ",") + "%";
@@ -272,7 +301,7 @@ function renderList(sc, kind) {
       inp.oninput = () => { items[+inp.dataset.i] = inp.value; updateCount(); persistState(); };
     });
     box.querySelectorAll("[data-del]").forEach(b => {
-      b.onclick = () => { syncItems(); items.splice(+b.dataset.del, 1); render(); };
+      b.onclick = () => { syncItems(); invalidateAnswers(); items.splice(+b.dataset.del, 1); render(); };
     });
     updateCount();
   };
@@ -297,14 +326,14 @@ function renderList(sc, kind) {
   draw();
   $("add").onclick = () => {
     if (items.length >= max) return alert(`Máximo de ${max} itens — mais que isso vira uma eternidade de perguntas.`);
-    syncItems(); items.push(""); render();
+    syncItems(); invalidateAnswers(); items.push(""); render();
     const inputs = document.querySelectorAll("#items input");
     const last = inputs[inputs.length - 1];
     if (last) last.focus();
   };
   $("rm").onclick = () => {
     if (items.length <= 2) return alert("Mínimo de 2 itens.");
-    syncItems(); items.pop(); render();
+    syncItems(); invalidateAnswers(); items.pop(); render();
   };
   $("back").onclick = () => { syncItems(); state.step -= 1; render(); };
   $("next").onclick = () => {
@@ -323,37 +352,39 @@ function renderList(sc, kind) {
   };
 }
 
-// Foto do progresso (para preservar respostas quando o usuário volta e edita
-// nomes). Chaves posicionais — renomear não perde nada; mudar quantidades recomeça.
+// Foto do progresso. As respostas são posicionais: renomear itens mantém as
+// posições, mas adicionar/remover itens limpa as respostas (invalidateAnswers)
+// para nunca reutilizar o julgamento de um item em outro.
 function snapshotFlow() {
-  const ans = {};
-  state.questions.forEach((q, idx) => {
-    if (state.answers[idx]) ans[q.type + ":" + (q.type === "criteria" ? -1 : q.cj) + ":" + q.i + ":" + q.j] = state.answers[idx];
-  });
   const d = state.queueDims || { nCrit: -1, nAlt: -1 }; // sem carimbo = snapshot inválido
-  return {
-    nCrit: d.nCrit,
-    nAlt: d.nAlt,
-    critMatrix: state.critMatrix.map(r => r.slice()),
-    alt: state.criteria.map(c => (state.altMatrices[c] || []).map(r => r.slice())),
-    answers: ans,
-  };
+  return { nCrit: d.nCrit, nAlt: d.nAlt, answers: state.answers.slice() };
 }
 
 function restoreFlow(snap) {
   if (!snap || snap.nCrit !== state.criteria.length || snap.nAlt !== state.alternatives.length) return;
-  if (snap.critMatrix.length === state.criteria.length) state.critMatrix = snap.critMatrix;
-  state.criteria.forEach((c, i) => {
-    if (snap.alt[i] && snap.alt[i].length === state.alternatives.length) state.altMatrices[c] = snap.alt[i];
-  });
+  if (!Array.isArray(snap.answers) || snap.answers.length !== state.questions.length) return;
+  state.answers = snap.answers.map(a => (a ? { v: a.v } : null));
   state.questions.forEach((q, idx) => {
-    const key = q.type + ":" + (q.type === "criteria" ? -1 : q.cj) + ":" + q.i + ":" + q.j;
-    if (snap.answers[key]) { state.answers[idx] = snap.answers[key]; applyAnswer(q, snap.answers[key]); }
+    if (state.answers[idx]) applyAnswer(q, state.answers[idx]);
   });
   const firstOpen = state.answers.findIndex(a => !a);
   state.qIndex = firstOpen === -1 ? 0 : firstOpen;
   state.sliderIdx = 0;
   state.sliderTouched = false;
+}
+
+// Mudança estrutural (adicionar/remover critério ou opção) não pode remapear
+// respostas antigas com segurança: limpa a fila para o usuário responder de novo.
+function invalidateAnswers() {
+  state.answers = state.questions.map(() => null);
+  state.qIndex = 0;
+  state.correction = null;
+  state.sliderIdx = 0;
+  state.sliderTouched = false;
+  state.pendingNudge = null;
+  state.queueDims = null;
+  state.result = null;
+  state.phase = "ask";
 }
 
 // Passo 4
@@ -432,7 +463,7 @@ function renderCompare(sc) {
     setSliderValueText(state.sliderIdx, q.a, q.b);
     persistState();
   };
-  $("qnext").onclick = () => saveAnswer({ v: sliderIndexToValue(state.sliderIdx) });
+  $("qnext").onclick = () => saveAnswer({ v: answerValueForSave(prev, state.sliderTouched, state.sliderIdx) });
   $("qback").onclick = () => {
     state.sliderTouched = false;
     if (state.correction) {
@@ -559,10 +590,11 @@ const STORAGE_KEY = "saaty.estado.v1";
 function persistState() {
   try {
     if (typeof localStorage === "undefined") return;
-    const { step, goal, criteria, alternatives, critMatrix, altMatrices, answers, qIndex, queueDims,
+    const { step, goal, criteria, alternatives, answers, qIndex, queueDims,
       phase, correction, sliderIdx, sliderTouched } = state;
+    // Só as respostas são persistidas; as matrizes são reconstruídas no restore.
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      step, goal, criteria, alternatives, critMatrix, altMatrices, answers, qIndex, queueDims,
+      step, goal, criteria, alternatives, answers, qIndex, queueDims,
       phase, correction, sliderIdx, sliderTouched,
     }));
   } catch (_) { /* armazenamento bloqueado/cota cheia: segue sem persistir */ }
@@ -581,21 +613,14 @@ function restoreState() {
     if (!crit.every(c => typeof c === "string") || !alts.every(a => typeof a === "string")) return false;
     const n = crit.length, m = alts.length;
     const step = Number.isInteger(s.step) && s.step >= 1 && s.step <= 5 ? s.step : 1;
-    const square = (M, k) => Array.isArray(M) && M.length === k &&
-      M.every(r => Array.isArray(r) && r.length === k &&
-        r.every(v => typeof v === "number" && Number.isFinite(v) && v > 0));
-    const hasMatrices = square(s.critMatrix, n) &&
-      crit.every(c => s.altMatrices && square(s.altMatrices[c], m));
-    // Rascunho (steps 1-3) ainda não tem matrizes: preserva goal/listas e recria matrizes vazias.
-    if (!hasMatrices && step > 3) return false;
     const questions = buildQuestionQueue(crit, alts);
     const answersOk = Array.isArray(s.answers) && s.answers.length === questions.length &&
       s.answers.every(a => a === null || (a && typeof a.v === "number" && Number.isFinite(a.v) && a.v > 0));
-    // Storage parcialmente corrompido não pode virar estado misto (matrizes velhas + respostas zeradas).
+    // Rascunho (steps 1-3) pode estar sem respostas; comparação/resultado exigem a fila.
     if (!answersOk && step > 3) return false;
-    const answers = hasMatrices && answersOk ? s.answers : questions.map(() => null);
     // Um resultado (step 5) exige todas as respostas; o rascunho (step 4) pode estar parcial.
-    if (step === 5 && answers.some(a => !a)) return false;
+    if (step === 5 && (!answersOk || s.answers.some(a => !a))) return false;
+    const answers = answersOk ? s.answers.map(a => (a ? { v: a.v } : null)) : questions.map(() => null);
     const rawCorr = s.correction;
     const correction = step === 4 && rawCorr && Array.isArray(rawCorr.queue) && rawCorr.queue.length > 0 &&
       rawCorr.queue.every(i => Number.isInteger(i) && i >= 0 && i < questions.length) &&
@@ -604,6 +629,8 @@ function restoreState() {
     const qIndex = correction ? correction.queue[correction.pos]
       : (Number.isInteger(s.qIndex) && s.qIndex >= 0 && s.qIndex < questions.length ? s.qIndex : 0);
     const sliderIdx = Number.isInteger(s.sliderIdx) && s.sliderIdx >= -4 && s.sliderIdx <= 4 ? s.sliderIdx : 0;
+    const hasSavedAnswers = answers.some(Boolean);
+    const { critMatrix, altMatrices } = matricesFromAnswers(crit, alts, answers);
     Object.assign(state, {
       goal: String(s.goal || ""),
       criteria: crit.slice(),
@@ -612,20 +639,16 @@ function restoreState() {
       answers,
       step,
       qIndex,
-      queueDims: hasMatrices ? { nCrit: n, nAlt: m } : null,
+      queueDims: step >= 4 || hasSavedAnswers ? { nCrit: n, nAlt: m } : null,
       phase: s.phase === "overview" ? "overview" : "ask",
       correction,
       pendingNudge: null,
       sliderIdx,
       sliderTouched: s.sliderTouched === true,
+      critMatrix,
+      altMatrices,
       result: null,
     });
-    ensureMatrices();
-    if (hasMatrices) {
-      state.critMatrix = s.critMatrix.map(r => r.slice());
-      state.altMatrices = {};
-      for (const c of crit) state.altMatrices[c] = s.altMatrices[c].map(r => r.slice());
-    }
     if (state.step === 5) computeResult();
     return true;
   } catch (_) { return false; }
@@ -787,6 +810,10 @@ function loadExample() {
   state.critMatrix = EXAMPLE.critMatrix.map(r => r.slice());
   state.altMatrices = {};
   state.criteria.forEach(c => { state.altMatrices[c] = EXAMPLE.altMatrices[c].map(r => r.slice()); });
+  // O exemplo passa a ter a mesma fila/respostas de um fluxo normal: assim ele
+  // sobrevive ao reload e o "Ajustar respostas" tem o que editar.
+  startQuestions();
+  state.answers = answersFromMatrices(state.criteria, state.alternatives, state.critMatrix, state.altMatrices);
   finishAndShowResult();
 }
 
@@ -797,7 +824,9 @@ if (typeof document !== "undefined") {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    calcAHP, RI, sliderIndexToValue, valueToSliderIndex, magnitudeParts, describeAnswer,
+    calcAHP, RI, sliderIndexToValue, valueToSliderIndex, answerValueForSave, magnitudeParts, describeAnswer,
     questionCount, buildQuestionQueue, findCycle, findWorstOffender, restoreState, EXAMPLE,
+    answersFromMatrices, matricesFromAnswers,
+    __test: { state, ensureMatrices, startQuestions, snapshotFlow, restoreFlow, invalidateAnswers },
   };
 }
