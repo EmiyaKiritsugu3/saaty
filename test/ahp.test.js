@@ -244,21 +244,7 @@ test("mudanca estrutural limpa respostas para nao reutilizar julgamentos antigos
 
 test("snapshot/restore preserva respostas quando apenas os nomes mudam", () => {
   const S = AHP.__test.state;
-  const criteria = ["A", "B"];
-  const alternatives = ["X", "Y"];
-  const questions = AHP.buildQuestionQueue(criteria, alternatives);
-  const answers = questions.map((_, i) => ({ v: i + 1 }));
-  Object.assign(S, {
-    step: 3, goal: "Teste", criteria, alternatives, questions, answers,
-    queueDims: { nCrit: 2, nAlt: 2 }, qIndex: 0, correction: null,
-    sliderIdx: 0, sliderTouched: false, pendingNudge: null, phase: "ask", result: null,
-  });
-  AHP.__test.ensureMatrices();
-  questions.forEach((q, i) => {
-    const M = q.type === "criteria" ? S.critMatrix : S.altMatrices[q.crit];
-    M[q.i][q.j] = answers[i].v;
-    M[q.j][q.i] = 1 / answers[i].v;
-  });
+  setupAnsweredState(S, { step: 3 });
   const snap = AHP.__test.snapshotFlow();
   S.criteria = ["A2", "B"];
   AHP.__test.ensureMatrices();
