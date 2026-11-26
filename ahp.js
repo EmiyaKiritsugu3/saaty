@@ -142,6 +142,7 @@ const state = {
   questions: [],
   qIndex: 0,
   queueDims: null, // dims {nCrit, nAlt} usadas para construir questions (carimbo anti-obsoleto)
+  structuralAdd: null, // {kind, start} — linhas adicionadas ainda não confirmadas
   correction: null, // {queue:[qIdx], pos} — fila só com os pontos problemáticos
   sliderIdx: 0, // posição atual do slider (-4..+4)
   sliderTouched: false, // usuário moveu o slider desde a última pergunta
@@ -326,7 +327,11 @@ function renderList(sc, kind) {
   draw();
   $("add").onclick = () => {
     if (items.length >= max) return alert(`Máximo de ${max} itens — mais que isso vira uma eternidade de perguntas.`);
-    syncItems(); items.push(""); render();
+    syncItems();
+    if (!state.structuralAdd || state.structuralAdd.kind !== kind) {
+      state.structuralAdd = { kind, start: items.length };
+    }
+    items.push(""); render();
     const inputs = document.querySelectorAll("#items input");
     const last = inputs[inputs.length - 1];
     if (last) last.focus();
@@ -343,6 +348,7 @@ function renderList(sc, kind) {
     const seen = new Set();
     const dup = filled.find(s => { const k = s.toLowerCase(); if (seen.has(k)) return true; seen.add(k); return false; });
     if (dup) return alert(`"${dup}" aparece mais de uma vez — dê nomes diferentes para cada item.`);
+    consumeStructuralAdd(kind, items);
     const snap = snapshotFlow();
     if (isCrit) state.criteria = filled; else state.alternatives = filled;
     ensureMatrices();
@@ -362,7 +368,9 @@ function snapshotFlow() {
 }
 
 function restoreFlow(snap) {
-  if (!snap || snap.nCrit !== state.criteria.length || snap.nAlt !== state.alternatives.length) return;
+  const nCrit = state.criteria.filter(s => s.trim()).length;
+  const nAlt = state.alternatives.filter(s => s.trim()).length;
+  if (!snap || snap.nCrit !== nCrit || snap.nAlt !== nAlt) return;
   if (!Array.isArray(snap.answers) || snap.answers.length !== state.questions.length) return;
   state.answers = snap.answers.map(a => (a ? { v: a.v } : null));
   state.questions.forEach((q, idx) => {
@@ -374,9 +382,20 @@ function restoreFlow(snap) {
   state.sliderTouched = false;
 }
 
+// Uma linha adicionada só invalida respostas se sobreviver ao filtro de vazios.
+// Assim, adicionar e continuar sem preencher preserva a fila; preencher a nova
+// linha (mesmo esvaziando outra) descarta os julgamentos antigos.
+function consumeStructuralAdd(kind, items) {
+  const pending = state.structuralAdd;
+  state.structuralAdd = null;
+  if (!pending || pending.kind !== kind || !Number.isInteger(pending.start)) return false;
+  const addedFilled = items.slice(pending.start).some(s => typeof s === "string" && s.trim());
+  if (addedFilled) invalidateAnswers();
+  return addedFilled;
+}
+
 // Remover um critério/opção não pode remapear respostas antigas com segurança:
-// limpa a fila para o usuário responder de novo. Adições preenchidas são
-// barradas pela checagem de dimensões do restoreFlow.
+// limpa a fila para o usuário responder de novo.
 function invalidateAnswers() {
   state.answers = state.questions.map(() => null);
   state.qIndex = 0;
@@ -385,6 +404,7 @@ function invalidateAnswers() {
   state.sliderTouched = false;
   state.pendingNudge = null;
   state.queueDims = null;
+  state.structuralAdd = null;
   state.result = null;
   state.phase = "ask";
 }
@@ -397,6 +417,7 @@ function startQuestions() {
   state.qIndex = 0;
   state.sliderIdx = 0;
   state.pendingNudge = null;
+  state.structuralAdd = null;
   state.phase = "ask";
 }
 
@@ -593,11 +614,11 @@ function persistState() {
   try {
     if (typeof localStorage === "undefined") return;
     const { step, goal, criteria, alternatives, answers, qIndex, queueDims,
-      phase, correction, sliderIdx, sliderTouched } = state;
+      structuralAdd, phase, correction, sliderIdx, sliderTouched } = state;
     // Só as respostas são persistidas; as matrizes são reconstruídas no restore.
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       step, goal, criteria, alternatives, answers, qIndex, queueDims,
-      phase, correction, sliderIdx, sliderTouched,
+      structuralAdd, phase, correction, sliderIdx, sliderTouched,
     }));
   } catch (_) { /* armazenamento bloqueado/cota cheia: segue sem persistir */ }
 }
@@ -613,16 +634,34 @@ function restoreState() {
     if (!Array.isArray(crit) || !Array.isArray(alts)) return false;
     if (crit.length < 2 || crit.length > 5 || alts.length < 2 || alts.length > 5) return false;
     if (!crit.every(c => typeof c === "string") || !alts.every(a => typeof a === "string")) return false;
-    const n = crit.length, m = alts.length;
     const step = Number.isInteger(s.step) && s.step >= 1 && s.step <= 5 ? s.step : 1;
-    const questions = buildQuestionQueue(crit, alts);
+    // Linhas em branco são rascunho de edição: a fila usa só o conteúdo
+    // preenchido, igual ao "Continuar", mas os inputs seguem com as linhas.
+    const filledCrit = crit.map(c => c.trim()).filter(Boolean);
+    const filledAlts = alts.map(a => a.trim()).filter(Boolean);
+    if (step > 3 && (filledCrit.length < 2 || filledAlts.length < 2)) return false;
+    const n = filledCrit.length, m = filledAlts.length;
+    const questions = buildQuestionQueue(filledCrit, filledAlts);
     const answersOk = Array.isArray(s.answers) && s.answers.length === questions.length &&
       s.answers.every(a => a === null || (a && typeof a.v === "number" && Number.isFinite(a.v) && a.v > 0));
     // Rascunho (steps 1-3) pode estar sem respostas; comparação/resultado exigem a fila.
     if (!answersOk && step > 3) return false;
     // Um resultado (step 5) exige todas as respostas; o rascunho (step 4) pode estar parcial.
     if (step === 5 && (!answersOk || s.answers.some(a => !a))) return false;
-    const answers = answersOk ? s.answers.map(a => (a ? { v: a.v } : null)) : questions.map(() => null);
+    let answers = answersOk ? s.answers.map(a => (a ? { v: a.v } : null)) : questions.map(() => null);
+    const rawAdd = s.structuralAdd;
+    const structuralAdd = rawAdd && (rawAdd.kind === "crit" || rawAdd.kind === "alt") &&
+      Number.isInteger(rawAdd.start) && rawAdd.start >= 0 &&
+      rawAdd.start <= (rawAdd.kind === "crit" ? crit.length : alts.length)
+      ? { kind: rawAdd.kind, start: rawAdd.start } : null;
+    // Se a linha adicionada já foi preenchida, as respostas antigas não valem
+    // mais, mesmo que a contagem final coincida com a anterior.
+    const addedFilled = structuralAdd && (
+      structuralAdd.kind === "crit"
+        ? crit.slice(structuralAdd.start).some(c => c.trim())
+        : alts.slice(structuralAdd.start).some(a => a.trim())
+    );
+    if (addedFilled) answers = questions.map(() => null);
     const rawCorr = s.correction;
     const correction = step === 4 && rawCorr && Array.isArray(rawCorr.queue) && rawCorr.queue.length > 0 &&
       rawCorr.queue.every(i => Number.isInteger(i) && i >= 0 && i < questions.length) &&
@@ -632,16 +671,17 @@ function restoreState() {
       : (Number.isInteger(s.qIndex) && s.qIndex >= 0 && s.qIndex < questions.length ? s.qIndex : 0);
     const sliderIdx = Number.isInteger(s.sliderIdx) && s.sliderIdx >= -4 && s.sliderIdx <= 4 ? s.sliderIdx : 0;
     const hasSavedAnswers = answers.some(Boolean);
-    const { critMatrix, altMatrices } = matricesFromAnswers(crit, alts, answers);
+    const { critMatrix, altMatrices } = matricesFromAnswers(filledCrit, filledAlts, answers);
     Object.assign(state, {
       goal: String(s.goal || ""),
-      criteria: crit.slice(),
-      alternatives: alts.slice(),
+      criteria: step >= 3 ? filledCrit.slice() : crit.slice(),
+      alternatives: step >= 4 ? filledAlts.slice() : alts.slice(),
       questions,
       answers,
       step,
       qIndex,
       queueDims: step >= 4 || hasSavedAnswers ? { nCrit: n, nAlt: m } : null,
+      structuralAdd: step >= 4 ? null : structuralAdd,
       phase: s.phase === "overview" ? "overview" : "ask",
       correction,
       pendingNudge: null,
@@ -756,6 +796,7 @@ function renderResult(sc) {
     state.questions = [];
     state.answers = [];
     state.queueDims = null;
+    state.structuralAdd = null;
     state.qIndex = 0;
     state.sliderIdx = 0;
     state.sliderTouched = false;
@@ -803,6 +844,7 @@ function loadExample() {
   state.questions = [];
   state.answers = [];
   state.queueDims = null;
+  state.structuralAdd = null;
   state.qIndex = 0;
   state.sliderIdx = 0;
   state.sliderTouched = false;
@@ -829,6 +871,6 @@ if (typeof module !== "undefined" && module.exports) {
     calcAHP, RI, sliderIndexToValue, valueToSliderIndex, answerValueForSave, magnitudeParts, describeAnswer,
     questionCount, buildQuestionQueue, findCycle, findWorstOffender, restoreState, EXAMPLE,
     answersFromMatrices, matricesFromAnswers,
-    __test: { state, ensureMatrices, startQuestions, snapshotFlow, restoreFlow, invalidateAnswers },
+    __test: { state, ensureMatrices, startQuestions, snapshotFlow, restoreFlow, consumeStructuralAdd, invalidateAnswers },
   };
 }

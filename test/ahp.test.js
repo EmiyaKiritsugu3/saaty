@@ -247,6 +247,86 @@ test("snapshot/restore preserva respostas quando apenas os nomes mudam", () => {
   assert.equal(S.qIndex, 0);
 });
 
+test("adicao preenchida invalida respostas ao continuar", () => {
+  const S = AHP.__test.state;
+  const criteria = ["A", "B"];
+  const alternatives = ["X", "Y"];
+  const questions = AHP.buildQuestionQueue(criteria, alternatives);
+  const answers = questions.map((_, i) => ({ v: i + 1 }));
+  Object.assign(S, {
+    step: 2, goal: "Teste", criteria, alternatives, questions, answers,
+    queueDims: { nCrit: 2, nAlt: 2 }, qIndex: 0, correction: null,
+    sliderIdx: 0, sliderTouched: false, pendingNudge: null, phase: "ask",
+    result: null, structuralAdd: { kind: "crit", start: 2 },
+  });
+  AHP.__test.ensureMatrices();
+  AHP.__test.consumeStructuralAdd("crit", ["A", "B", "C"]);
+  assert.ok(S.answers.every(a => a === null));
+  assert.equal(S.queueDims, null);
+  assert.equal(S.structuralAdd, null);
+});
+
+test("adicao em branco mantem respostas ao continuar", () => {
+  const S = AHP.__test.state;
+  const criteria = ["A", "B"];
+  const alternatives = ["X", "Y"];
+  const questions = AHP.buildQuestionQueue(criteria, alternatives);
+  const answers = questions.map((_, i) => ({ v: i + 1 }));
+  Object.assign(S, {
+    step: 2, goal: "Teste", criteria, alternatives, questions, answers,
+    queueDims: { nCrit: 2, nAlt: 2 }, qIndex: 0, correction: null,
+    sliderIdx: 0, sliderTouched: false, pendingNudge: null, phase: "ask",
+    result: null, structuralAdd: { kind: "crit", start: 2 },
+  });
+  AHP.__test.ensureMatrices();
+  AHP.__test.consumeStructuralAdd("crit", ["A", "B", ""]);
+  assert.equal(S.answers.filter(Boolean).length, 3);
+  assert.deepEqual(S.queueDims, { nCrit: 2, nAlt: 2 });
+  assert.equal(S.structuralAdd, null);
+});
+
+test("restoreState mantem linhas em branco no editor e dimensiona a fila pelo conteudo preenchido", () => {
+  const criteria = ["A", "B", ""];
+  const alternatives = ["X", "Y"];
+  const answers = AHP.buildQuestionQueue(["A", "B"], alternatives).map((_, i) => ({ v: i + 1 }));
+  const payload = {
+    step: 2, goal: "Teste", criteria, alternatives, answers,
+    qIndex: 0, queueDims: { nCrit: 2, nAlt: 2 }, phase: "ask",
+    correction: null, sliderIdx: 0, sliderTouched: false, structuralAdd: null,
+  };
+  global.localStorage = { getItem: () => JSON.stringify(payload), setItem: () => {} };
+  try {
+    assert.equal(AHP.restoreState(), true);
+    assert.equal(AHP.__test.state.criteria.length, 3);
+    assert.equal(AHP.__test.state.questions.length, 3);
+    assert.equal(AHP.__test.state.answers.filter(Boolean).length, 3);
+    assert.deepEqual(AHP.__test.state.queueDims, { nCrit: 2, nAlt: 2 });
+  } finally {
+    delete global.localStorage;
+  }
+});
+
+test("restoreState descarta respostas quando a linha adicionada foi preenchida", () => {
+  const criteria = ["A", "B", "C"];
+  const alternatives = ["X", "Y"];
+  const answers = AHP.buildQuestionQueue(criteria, alternatives).map((_, i) => ({ v: i + 1 }));
+  const payload = {
+    step: 2, goal: "Teste", criteria, alternatives, answers,
+    qIndex: 0, queueDims: { nCrit: 3, nAlt: 2 }, phase: "ask",
+    correction: null, sliderIdx: 0, sliderTouched: false,
+    structuralAdd: { kind: "crit", start: 2 },
+  };
+  global.localStorage = { getItem: () => JSON.stringify(payload), setItem: () => {} };
+  try {
+    assert.equal(AHP.restoreState(), true);
+    assert.equal(AHP.__test.state.criteria.length, 3);
+    assert.equal(AHP.__test.state.answers.filter(Boolean).length, 0);
+    assert.equal(AHP.__test.state.queueDims, null);
+  } finally {
+    delete global.localStorage;
+  }
+});
+
 test("EXAMPLE espelha exemplo.json", () => {
   const json = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "exemplo.json"), "utf8"));
   assert.equal(AHP.EXAMPLE.goal, json.objetivo);

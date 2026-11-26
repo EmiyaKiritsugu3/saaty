@@ -18,7 +18,7 @@ O assistente guia a decisão em **5 etapas**:
 
 Detalhes matemáticos (matrizes, λ<sub>máx</sub>, CR) ficam escondidos em “🔬 Ver os cálculos”.
 
-O progresso fica salvo no navegador (`localStorage`): recarregar a página retoma o passo, os textos digitados, as respostas confirmadas, a posição atual do slider e até o modo correção. O exemplo pronto também é salvo e pode ser ajustado como qualquer outra decisão. Renomear critérios ou opções mantém as respostas; **adicionar ou remover itens depois de responder reinicia as comparações**, para nunca reaproveitar um julgamento em outro item. “↺ Nova decisão” limpa o progresso.
+O progresso fica salvo no navegador (`localStorage`): recarregar a página retoma o passo, os textos digitados, as respostas confirmadas, a posição atual do slider e até o modo correção. O exemplo pronto também é salvo e pode ser ajustado como qualquer outra decisão. Renomear critérios ou opções mantém as respostas; **adicionar ou remover itens depois de responder reinicia as comparações** (uma linha adicionada e deixada em branco não conta como mudança), para nunca reaproveitar um julgamento em outro item. “↺ Nova decisão” limpa o progresso.
 
 ## Como executar
 Qualquer uma das opções (é só frontend):
@@ -40,7 +40,7 @@ Sem dependências: usa o runner nativo do Node (18+).
 npm test
 ```
 
-Os testes cobrem o núcleo AHP (CR, pesos, reciprocidade), a fila de perguntas, detecção de ciclos, a escala do slider, a descrição verbal de valores pares/ímpares de Saaty, a sincronia entre `EXAMPLE` (em `ahp.js`) e `exemplo.json`, a restauração do exemplo salvo como respostas e a preservação/invalidação de respostas ao renomear ou trocar itens.
+Os testes cobrem o núcleo AHP (CR, pesos, reciprocidade), a fila de perguntas, detecção de ciclos, a escala do slider, a descrição verbal de valores pares/ímpares de Saaty, a sincronia entre `EXAMPLE` (em `ahp.js`) e `exemplo.json`, a restauração do exemplo salvo como respostas, a preservação/invalidação de respostas ao renomear, adicionar ou trocar itens e o tratamento de linhas em branco no restore.
 
 ## Estrutura
 ```
