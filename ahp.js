@@ -142,7 +142,7 @@ const state = {
   questions: [],
   qIndex: 0,
   queueDims: null, // dims {nCrit, nAlt} usadas para construir questions (carimbo anti-obsoleto)
-  structuralAdd: null, // {kind, start} — linhas adicionadas ainda não confirmadas
+  structuralAdd: null, // [{kind, start}] — linhas adicionadas ainda não confirmadas
   correction: null, // {queue:[qIdx], pos} — fila só com os pontos problemáticos
   sliderIdx: 0, // posição atual do slider (-4..+4)
   sliderTouched: false, // usuário moveu o slider desde a última pergunta
@@ -328,8 +328,9 @@ function renderList(sc, kind) {
   $("add").onclick = () => {
     if (items.length >= max) return alert(`Máximo de ${max} itens — mais que isso vira uma eternidade de perguntas.`);
     syncItems();
-    if (!state.structuralAdd || state.structuralAdd.kind !== kind) {
-      state.structuralAdd = { kind, start: items.length };
+    state.structuralAdd = Array.isArray(state.structuralAdd) ? state.structuralAdd : [];
+    if (!state.structuralAdd.some(m => m.kind === kind)) {
+      state.structuralAdd.push({ kind, start: items.length });
     }
     items.push(""); render();
     const inputs = document.querySelectorAll("#items input");
@@ -370,7 +371,7 @@ function snapshotFlow() {
 function restoreFlow(snap) {
   const nCrit = state.criteria.filter(s => s.trim()).length;
   const nAlt = state.alternatives.filter(s => s.trim()).length;
-  if (!snap || snap.nCrit !== nCrit || snap.nAlt !== nAlt) return;
+  if (snap?.nCrit !== nCrit || snap?.nAlt !== nAlt) return;
   if (!Array.isArray(snap.answers) || snap.answers.length !== state.questions.length) return;
   state.answers = snap.answers.map(a => (a ? { v: a.v } : null));
   state.questions.forEach((q, idx) => {
@@ -382,13 +383,24 @@ function restoreFlow(snap) {
   state.sliderTouched = false;
 }
 
+// Compatibilidade com o formato antigo {kind, start} e com a lista atual.
+function structuralAddMarkers(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw?.kind) return [raw];
+  return [];
+}
+
 // Uma linha adicionada só invalida respostas se sobreviver ao filtro de vazios.
 // Assim, adicionar e continuar sem preencher preserva a fila; preencher a nova
 // linha (mesmo esvaziando outra) descarta os julgamentos antigos.
 function consumeStructuralAdd(kind, items) {
-  const pending = state.structuralAdd;
-  state.structuralAdd = null;
-  if (!pending || pending.kind !== kind || !Number.isInteger(pending.start)) return false;
+  const markers = state.structuralAdd;
+  if (!Array.isArray(markers)) return false;
+  const idx = markers.findIndex(m => m && m.kind === kind);
+  if (idx === -1) return false; // marcador da outra lista: preserva para depois
+  const [pending] = markers.splice(idx, 1);
+  state.structuralAdd = markers.length ? markers : null;
+  if (!Number.isInteger(pending.start)) return false;
   const addedFilled = items.slice(pending.start).some(s => typeof s === "string" && s.trim());
   if (addedFilled) invalidateAnswers();
   return addedFilled;
@@ -649,18 +661,23 @@ function restoreState() {
     // Um resultado (step 5) exige todas as respostas; o rascunho (step 4) pode estar parcial.
     if (step === 5 && (!answersOk || s.answers.some(a => !a))) return false;
     let answers = answersOk ? s.answers.map(a => (a ? { v: a.v } : null)) : questions.map(() => null);
-    const rawAdd = s.structuralAdd;
-    const structuralAdd = rawAdd && (rawAdd.kind === "crit" || rawAdd.kind === "alt") &&
-      Number.isInteger(rawAdd.start) && rawAdd.start >= 0 &&
-      rawAdd.start <= (rawAdd.kind === "crit" ? crit.length : alts.length)
-      ? { kind: rawAdd.kind, start: rawAdd.start } : null;
+    const rawAdds = structuralAddMarkers(s.structuralAdd);
+    const seenKinds = new Set();
+    const structuralAdd = [];
+    rawAdds.forEach(m => {
+      if (!m || (m.kind !== "crit" && m.kind !== "alt")) return;
+      if (!Number.isInteger(m.start) || m.start < 0) return;
+      const max = m.kind === "crit" ? crit.length : alts.length;
+      if (m.start > max || seenKinds.has(m.kind)) return;
+      seenKinds.add(m.kind);
+      structuralAdd.push({ kind: m.kind, start: m.start });
+    });
     // Se a linha adicionada já foi preenchida, as respostas antigas não valem
     // mais, mesmo que a contagem final coincida com a anterior.
-    const addedFilled = structuralAdd && (
-      structuralAdd.kind === "crit"
-        ? crit.slice(structuralAdd.start).some(c => c.trim())
-        : alts.slice(structuralAdd.start).some(a => a.trim())
-    );
+    const addedFilled = structuralAdd.some(m => {
+      const list = m.kind === "crit" ? crit : alts;
+      return list.slice(m.start).some(s => s.trim());
+    });
     if (addedFilled) answers = questions.map(() => null);
     const rawCorr = s.correction;
     const correction = step === 4 && rawCorr && Array.isArray(rawCorr.queue) && rawCorr.queue.length > 0 &&
@@ -681,7 +698,7 @@ function restoreState() {
       step,
       qIndex,
       queueDims: step >= 4 || hasSavedAnswers ? { nCrit: n, nAlt: m } : null,
-      structuralAdd: step >= 4 ? null : structuralAdd,
+      structuralAdd: step >= 4 || structuralAdd.length === 0 ? null : structuralAdd,
       phase: s.phase === "overview" ? "overview" : "ask",
       correction,
       pendingNudge: null,

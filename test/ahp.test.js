@@ -13,6 +13,28 @@ function assertMatrixClose(actual, expected, tol = 1e-9) {
   });
 }
 
+function setupAnsweredState(S, overrides = {}) {
+  const criteria = overrides.criteria || ["A", "B"];
+  const alternatives = overrides.alternatives || ["X", "Y"];
+  const questions = AHP.buildQuestionQueue(criteria, alternatives);
+  const answers = overrides.answers || questions.map((_, i) => ({ v: i + 1 }));
+  Object.assign(S, {
+    step: 2, goal: "Teste", criteria, alternatives, questions, answers,
+    queueDims: { nCrit: criteria.length, nAlt: alternatives.length },
+    qIndex: 0, correction: null, sliderIdx: 0, sliderTouched: false,
+    pendingNudge: null, phase: "ask", result: null, structuralAdd: null,
+    ...overrides,
+  });
+  AHP.__test.ensureMatrices();
+  questions.forEach((q, i) => {
+    if (!answers[i]) return;
+    const M = q.type === "criteria" ? S.critMatrix : S.altMatrices[q.crit];
+    M[q.i][q.j] = answers[i].v;
+    M[q.j][q.i] = 1 / answers[i].v;
+  });
+  return { criteria, alternatives, questions, answers };
+}
+
 test("calcAHP do exemplo: CR < 10% e pesos somam 1", () => {
   const r = AHP.calcAHP(AHP.EXAMPLE.critMatrix);
   assert.ok(r.CR < 0.10, `CR=${r.CR}`);
@@ -249,17 +271,7 @@ test("snapshot/restore preserva respostas quando apenas os nomes mudam", () => {
 
 test("adicao preenchida invalida respostas ao continuar", () => {
   const S = AHP.__test.state;
-  const criteria = ["A", "B"];
-  const alternatives = ["X", "Y"];
-  const questions = AHP.buildQuestionQueue(criteria, alternatives);
-  const answers = questions.map((_, i) => ({ v: i + 1 }));
-  Object.assign(S, {
-    step: 2, goal: "Teste", criteria, alternatives, questions, answers,
-    queueDims: { nCrit: 2, nAlt: 2 }, qIndex: 0, correction: null,
-    sliderIdx: 0, sliderTouched: false, pendingNudge: null, phase: "ask",
-    result: null, structuralAdd: { kind: "crit", start: 2 },
-  });
-  AHP.__test.ensureMatrices();
+  setupAnsweredState(S, { structuralAdd: [{ kind: "crit", start: 2 }] });
   AHP.__test.consumeStructuralAdd("crit", ["A", "B", "C"]);
   assert.ok(S.answers.every(a => a === null));
   assert.equal(S.queueDims, null);
@@ -268,20 +280,20 @@ test("adicao preenchida invalida respostas ao continuar", () => {
 
 test("adicao em branco mantem respostas ao continuar", () => {
   const S = AHP.__test.state;
-  const criteria = ["A", "B"];
-  const alternatives = ["X", "Y"];
-  const questions = AHP.buildQuestionQueue(criteria, alternatives);
-  const answers = questions.map((_, i) => ({ v: i + 1 }));
-  Object.assign(S, {
-    step: 2, goal: "Teste", criteria, alternatives, questions, answers,
-    queueDims: { nCrit: 2, nAlt: 2 }, qIndex: 0, correction: null,
-    sliderIdx: 0, sliderTouched: false, pendingNudge: null, phase: "ask",
-    result: null, structuralAdd: { kind: "crit", start: 2 },
-  });
-  AHP.__test.ensureMatrices();
+  setupAnsweredState(S, { structuralAdd: [{ kind: "crit", start: 2 }] });
   AHP.__test.consumeStructuralAdd("crit", ["A", "B", ""]);
   assert.equal(S.answers.filter(Boolean).length, 3);
   assert.deepEqual(S.queueDims, { nCrit: 2, nAlt: 2 });
+  assert.equal(S.structuralAdd, null);
+});
+
+test("consumir uma lista preserva a adicao pendente da outra", () => {
+  const S = AHP.__test.state;
+  setupAnsweredState(S, { step: 3, structuralAdd: [{ kind: "alt", start: 2 }] });
+  assert.equal(AHP.__test.consumeStructuralAdd("crit", ["A", "B"]), false);
+  assert.deepEqual(S.structuralAdd, [{ kind: "alt", start: 2 }]);
+  assert.equal(AHP.__test.consumeStructuralAdd("alt", ["X", "Y", "Z"]), true);
+  assert.ok(S.answers.every(a => a === null));
   assert.equal(S.structuralAdd, null);
 });
 
@@ -314,7 +326,7 @@ test("restoreState descarta respostas quando a linha adicionada foi preenchida",
     step: 2, goal: "Teste", criteria, alternatives, answers,
     qIndex: 0, queueDims: { nCrit: 3, nAlt: 2 }, phase: "ask",
     correction: null, sliderIdx: 0, sliderTouched: false,
-    structuralAdd: { kind: "crit", start: 2 },
+    structuralAdd: [{ kind: "crit", start: 2 }],
   };
   global.localStorage = { getItem: () => JSON.stringify(payload), setItem: () => {} };
   try {
