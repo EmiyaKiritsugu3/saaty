@@ -213,7 +213,9 @@ test("mudanca estrutural limpa respostas para nao reutilizar julgamentos antigos
   assert.equal(S.queueDims, null);
   AHP.__test.ensureMatrices();
   AHP.__test.startQuestions();
-  AHP.__test.restoreFlow(AHP.__test.snapshotFlow());
+  // Snapshot obsoleto: dimensões diferentes e respostas preenchidas. Se o
+  // guard de dimensões de restoreFlow cair, este teste falha.
+  AHP.__test.restoreFlow({ nCrit: 3, nAlt: 3, answers: S.questions.map(() => ({ v: 9 })) });
   assert.ok(S.answers.every(a => a === null));
   assert.equal(S.qIndex, 0);
 });

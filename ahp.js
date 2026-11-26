@@ -326,7 +326,7 @@ function renderList(sc, kind) {
   draw();
   $("add").onclick = () => {
     if (items.length >= max) return alert(`Máximo de ${max} itens — mais que isso vira uma eternidade de perguntas.`);
-    syncItems(); invalidateAnswers(); items.push(""); render();
+    syncItems(); items.push(""); render();
     const inputs = document.querySelectorAll("#items input");
     const last = inputs[inputs.length - 1];
     if (last) last.focus();
@@ -353,8 +353,9 @@ function renderList(sc, kind) {
 }
 
 // Foto do progresso. As respostas são posicionais: renomear itens mantém as
-// posições, mas adicionar/remover itens limpa as respostas (invalidateAnswers)
-// para nunca reutilizar o julgamento de um item em outro.
+// posições. Adicionar um item preenchido muda as dimensões e impede o restore;
+// remover um item limpa as respostas (invalidateAnswers) para nunca reutilizar
+// o julgamento de um item em outro.
 function snapshotFlow() {
   const d = state.queueDims || { nCrit: -1, nAlt: -1 }; // sem carimbo = snapshot inválido
   return { nCrit: d.nCrit, nAlt: d.nAlt, answers: state.answers.slice() };
@@ -373,8 +374,9 @@ function restoreFlow(snap) {
   state.sliderTouched = false;
 }
 
-// Mudança estrutural (adicionar/remover critério ou opção) não pode remapear
-// respostas antigas com segurança: limpa a fila para o usuário responder de novo.
+// Remover um critério/opção não pode remapear respostas antigas com segurança:
+// limpa a fila para o usuário responder de novo. Adições preenchidas são
+// barradas pela checagem de dimensões do restoreFlow.
 function invalidateAnswers() {
   state.answers = state.questions.map(() => null);
   state.qIndex = 0;
